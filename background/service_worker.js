@@ -20,16 +20,67 @@ function headersToObject(headersArray) {
   return headers;
 }
 
+// Persist tabStreams and tabMetadata into chrome.storage.local
+async function persistState() {
+  try {
+    const streamsObj = {};
+    for (const [k, v] of tabStreams.entries()) {
+      streamsObj[k] = v;
+    }
+    const metaObj = {};
+    for (const [k, v] of tabMetadata.entries()) {
+      metaObj[k] = v;
+    }
+    await chrome.storage.local.set({
+      tabStreams: streamsObj,
+      tabMetadata: metaObj,
+      lastActiveMediaTabId
+    });
+  } catch (err) {
+    console.error('Failed to persist state:', err);
+  }
+}
+
+// Restore streams and metadata from chrome.storage.local
+async function loadPersistedState() {
+  try {
+    const data = await chrome.storage.local.get([
+      'tabStreams',
+      'tabMetadata',
+      'lastActiveMediaTabId'
+    ]);
+    if (data.tabStreams) {
+      for (const [tId, sList] of Object.entries(data.tabStreams)) {
+        tabStreams.set(Number(tId), sList);
+      }
+    }
+    if (data.tabMetadata) {
+      for (const [tId, meta] of Object.entries(data.tabMetadata)) {
+        tabMetadata.set(Number(tId), meta);
+      }
+    }
+    if (data.lastActiveMediaTabId) {
+      lastActiveMediaTabId = data.lastActiveMediaTabId;
+    }
+  } catch (err) {
+    console.error('Failed to load persisted state:', err);
+  }
+}
+
+// Load persisted state immediately on service worker bootstrap
+loadPersistedState();
+
 // Track tab updates to keep page title in sync
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (tab?.title) {
     tabMetadata.set(tabId, { title: tab.title, url: tab.url });
+    persistState();
   }
 });
 
 // Sniff M3U8 requests before sending
 chrome.webRequest.onSendHeaders.addListener(
-  (details) => {
+  async (details) => {
     const { url, tabId, requestHeaders } = details;
     if (tabId < 0) return;
 
@@ -38,11 +89,12 @@ chrome.webRequest.onSendHeaders.addListener(
 
     lastActiveMediaTabId = tabId;
 
-    chrome.tabs.get(tabId, (tab) => {
-      if (!chrome.runtime.lastError && tab?.title) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab?.title) {
         tabMetadata.set(tabId, { title: tab.title, url: tab.url });
       }
-    });
+    } catch {}
 
     const headers = headersToObject(requestHeaders);
     const streams = tabStreams.get(tabId) || [];
@@ -55,9 +107,11 @@ chrome.webRequest.onSendHeaders.addListener(
         headers,
         timestamp: Date.now()
       });
-      // Cap at 10 streams per tab
-      if (streams.length > 10) streams.pop();
+      // Cap at 20 streams per tab
+      if (streams.length > 20) streams.pop();
       tabStreams.set(tabId, streams);
+
+      await persistState();
 
       // Update badge on extension icon
       chrome.action.setBadgeText({ tabId, text: String(streams.length) });
@@ -68,39 +122,72 @@ chrome.webRequest.onSendHeaders.addListener(
   ['requestHeaders', chrome.webRequest.OnBeforeSendHeadersOptions.EXTRA_HEADERS].filter(Boolean)
 );
 
-// Reset stream cache on top-level navigation
-chrome.webNavigation.onBeforeNavigate.addListener((details) => {
-  if (details.frameId === 0) {
-    tabStreams.delete(details.tabId);
-    tabMetadata.delete(details.tabId);
-    chrome.action.setBadgeText({ tabId: details.tabId, text: '' });
-  }
-});
-
-// Clean up when tab is closed
-chrome.tabs.onRemoved.addListener((tabId) => {
-  tabStreams.delete(tabId);
-  tabMetadata.delete(tabId);
-});
-
 // Message listener for popup communication
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_STREAMS') {
-    const tabId = request.tabId || lastActiveMediaTabId;
-    const streams = tabStreams.get(tabId) || [];
-    const meta = tabId ? tabMetadata.get(tabId) : null;
+    (async () => {
+      if (tabStreams.size === 0) {
+        await loadPersistedState();
+      }
 
+      let tabId = request.tabId || lastActiveMediaTabId;
+      let streams = tabId ? tabStreams.get(tabId) || [] : [];
+      let meta = tabId ? tabMetadata.get(tabId) : null;
+
+      // Fall back to last active media tab or any tab with streams
+      if (streams.length === 0 && lastActiveMediaTabId && lastActiveMediaTabId !== tabId) {
+        const fallbackStreams = tabStreams.get(lastActiveMediaTabId) || [];
+        if (fallbackStreams.length > 0) {
+          tabId = lastActiveMediaTabId;
+          streams = fallbackStreams;
+          meta = tabMetadata.get(tabId);
+        }
+      }
+
+      if (streams.length === 0) {
+        for (const [tId, sList] of tabStreams.entries()) {
+          if (sList && sList.length > 0) {
+            tabId = tId;
+            streams = sList;
+            meta = tabMetadata.get(tId);
+            break;
+          }
+        }
+      }
+
+      let title = meta?.title || '';
+      let url = meta?.url || '';
+
+      if (tabId) {
+        try {
+          const tab = await chrome.tabs.get(tabId);
+          if (tab?.title) {
+            title = tab.title;
+            url = tab.url;
+            tabMetadata.set(tabId, { title, url });
+            await persistState();
+          }
+        } catch {}
+      }
+
+      sendResponse({ streams, tabId, tabTitle: title, tabUrl: url });
+    })();
+    return true;
+  }
+
+  if (request.type === 'CLEAR_STREAMS') {
+    const tabId = request.tabId || lastActiveMediaTabId;
     if (tabId) {
-      chrome.tabs.get(tabId, (tab) => {
-        const err = chrome.runtime.lastError;
-        const title = !err && tab?.title ? tab.title : meta?.title || '';
-        const url = !err && tab?.url ? tab.url : meta?.url || '';
-        if (title) tabMetadata.set(tabId, { title, url });
-        sendResponse({ streams, tabId, tabTitle: title, tabUrl: url });
-      });
-      return true;
+      tabStreams.delete(tabId);
+      tabMetadata.delete(tabId);
+      chrome.action.setBadgeText({ tabId, text: '' });
+    } else {
+      tabStreams.clear();
+      tabMetadata.clear();
     }
-    sendResponse({ streams, tabId, tabTitle: meta?.title || '', tabUrl: meta?.url || '' });
+    persistState().then(() => {
+      sendResponse({ success: true });
+    });
     return true;
   }
 

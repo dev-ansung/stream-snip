@@ -45,6 +45,7 @@ const progressContainer = document.getElementById('progressContainer');
 const downloadProgress = document.getElementById('downloadProgress');
 const progressStatus = document.getElementById('progressStatus');
 const btnOpenTab = document.getElementById('btnOpenTab');
+const btnClearStreams = document.getElementById('btnClearStreams');
 
 // Media information state
 const mediaInfoState = {
@@ -219,12 +220,63 @@ if (isFullPageMode) {
   }
 }
 
+function savePopupState() {
+  if (!currentTabId) return;
+  const state = {
+    tabId: currentTabId,
+    streamUrl: selectedStream?.url || '',
+    variantUrl: selectedVariant?.url || '',
+    startTime: startTimeInput?.value || '',
+    endTime: endTimeInput?.value || '',
+    isFull: fullVideoToggle?.checked || false,
+    filename: filenameInput?.value || '',
+    userCustomBaseName: userCustomBaseName || '',
+    format: formatSelect?.value || 'mp4',
+    timestamp: Date.now()
+  };
+  chrome.storage.local.set({
+    [`stego_popup_state_${currentTabId}`]: state,
+    stego_last_popup_state: state
+  });
+}
+
 if (btnOpenTab) {
   btnOpenTab.addEventListener('click', () => {
     const tabParam = currentTabId ? `&tabId=${currentTabId}` : '';
     chrome.tabs.create({
       url: chrome.runtime.getURL(`popup/popup.html?mode=full${tabParam}`)
     });
+  });
+}
+
+if (btnClearStreams) {
+  btnClearStreams.addEventListener('click', async () => {
+    await chrome.runtime.sendMessage({ type: 'CLEAR_STREAMS', tabId: currentTabId });
+    if (currentTabId) {
+      await chrome.storage.local.remove([
+        `stego_popup_state_${currentTabId}`,
+        'stego_last_popup_state'
+      ]);
+    }
+    currentStreams = [];
+    selectedStream = null;
+    selectedVariant = null;
+    currentTimeline = null;
+    userCustomBaseName = null;
+    streamCountBadge.textContent = '0 streams';
+    streamSelect.innerHTML = '<option value="">No M3U8 streams detected on this tab</option>';
+    videoInfoEl.textContent = 'Play a video on the page to intercept its stream.';
+    btnDownload.disabled = true;
+    resetMediaInfo();
+    if (hlsInstance) {
+      hlsInstance.destroy();
+      hlsInstance = null;
+    }
+    videoEl.src = '';
+    startTimeInput.value = '00:00';
+    endTimeInput.value = '00:00';
+    clipDurationText.textContent = 'Clip: --:--';
+    filenameInput.value = 'video_clip';
   });
 }
 
@@ -251,6 +303,7 @@ startTimeInput.addEventListener('input', () => {
   try {
     StegoTime.parseTimestamp(startTimeInput.value);
     updateFilenameTimestamps();
+    savePopupState();
   } catch {}
 });
 
@@ -261,6 +314,7 @@ startTimeInput.addEventListener('blur', () => {
   } catch {}
   updateClipDuration();
   updateFilenameTimestamps();
+  savePopupState();
 });
 
 endTimeInput.addEventListener('input', () => {
@@ -268,6 +322,7 @@ endTimeInput.addEventListener('input', () => {
   try {
     StegoTime.parseTimestamp(endTimeInput.value);
     updateFilenameTimestamps();
+    savePopupState();
   } catch {}
 });
 
@@ -278,6 +333,7 @@ endTimeInput.addEventListener('blur', () => {
   } catch {}
   updateClipDuration();
   updateFilenameTimestamps();
+  savePopupState();
 });
 
 btnSetStart.addEventListener('click', () => {
@@ -285,6 +341,7 @@ btnSetStart.addEventListener('click', () => {
     startTimeInput.value = StegoTime.formatDuration(videoEl.currentTime);
     updateClipDuration();
     updateFilenameTimestamps();
+    savePopupState();
   }
 });
 
@@ -293,6 +350,7 @@ btnSetEnd.addEventListener('click', () => {
     endTimeInput.value = StegoTime.formatDuration(videoEl.currentTime);
     updateClipDuration();
     updateFilenameTimestamps();
+    savePopupState();
   }
 });
 
@@ -309,6 +367,7 @@ fullVideoToggle.addEventListener('change', () => {
   }
   updateClipDuration();
   updateFilenameTimestamps();
+  savePopupState();
 });
 
 if (filenameInput) {
@@ -319,6 +378,7 @@ if (filenameInput) {
     } else {
       userCustomBaseName = null;
     }
+    savePopupState();
   });
 
   filenameInput.addEventListener('blur', () => {
@@ -327,6 +387,7 @@ if (filenameInput) {
       const extracted = StegoTime.extractBaseName(filenameInput.value, currentDefaultBaseName);
       userCustomBaseName = extracted.base;
     }
+    savePopupState();
   });
 }
 
@@ -337,6 +398,7 @@ if (formatSelect) {
     if (filenameInput.value) {
       filenameInput.value = filenameInput.value.replace(/\.(mp4|ts)$/i, '');
     }
+    savePopupState();
   });
 }
 
@@ -587,7 +649,9 @@ qualitySelect.addEventListener('change', () => {
   const chosenUrl = qualitySelect.value;
   const variant = currentVariants.find((v) => v.url === chosenUrl);
   if (variant) {
-    loadVariant(variant);
+    loadVariant(variant).then(() => {
+      savePopupState();
+    });
   }
 });
 
@@ -675,7 +739,9 @@ streamSelect.addEventListener('change', () => {
   const selectedUrl = streamSelect.value;
   const stream = currentStreams.find((s) => s.url === selectedUrl);
   if (stream) {
-    loadStream(stream);
+    loadStream(stream).then(() => {
+      savePopupState();
+    });
   }
 });
 
@@ -779,7 +845,55 @@ document.addEventListener('DOMContentLoaded', async () => {
       streamSelect.appendChild(opt);
     });
 
-    // Auto-select first stream
-    loadStream(currentStreams[0]);
+    // Check if we have saved state for this tab or session
+    const stateKey = `stego_popup_state_${currentTabId}`;
+    const saved = await chrome.storage.local.get([stateKey, 'stego_last_popup_state']);
+    const state = saved[stateKey] || saved['stego_last_popup_state'];
+
+    let targetStream = currentStreams[0];
+    if (state?.streamUrl) {
+      const matched = currentStreams.find((s) => s.url === state.streamUrl);
+      if (matched) {
+        targetStream = matched;
+        streamSelect.value = matched.url;
+      }
+    }
+
+    await loadStream(targetStream);
+
+    // If state had a specific variant selected, restore it
+    if (state?.variantUrl && currentVariants.length > 1) {
+      const matchedVariant = currentVariants.find((v) => v.url === state.variantUrl);
+      if (matchedVariant) {
+        qualitySelect.value = matchedVariant.url;
+        await loadVariant(matchedVariant);
+      }
+    }
+
+    // Restore timestamps, filename, format, and full video toggle
+    if (state) {
+      if (state.startTime) startTimeInput.value = state.startTime;
+      if (state.endTime) endTimeInput.value = state.endTime;
+      if (state.isFull) {
+        fullVideoToggle.checked = true;
+        startTimeInput.disabled = true;
+        endTimeInput.disabled = true;
+        btnSetStart.disabled = true;
+        btnSetEnd.disabled = true;
+      }
+      if (state.userCustomBaseName) {
+        userCustomBaseName = state.userCustomBaseName;
+      }
+      if (state.filename) {
+        filenameInput.value = state.filename;
+      } else {
+        updateFilenameTimestamps();
+      }
+      if (state.format && formatSelect) {
+        formatSelect.value = state.format;
+        btnDownload.textContent = `⬇️ Download ${state.format.toUpperCase()} Clip`;
+      }
+      updateClipDuration();
+    }
   });
 });
