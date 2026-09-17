@@ -1,0 +1,146 @@
+body {
+  width: 380px;
+  margin: 0;
+  padding: 12px;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: #1f2937;
+  background-color: #ffffff;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+header h1 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.badge {
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.section {
+  margin-bottom: 12px;
+}
+
+label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+select, input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+select:focus, input[type="text"]:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+video {
+  width: 100%;
+  max-height: 200px;
+  background: #000;
+  border-radius: 6px;
+}
+
+.meta-info {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.field-group {
+  flex: 1;
+}
+
+.input-with-button {
+  display: flex;
+  gap: 4px;
+}
+
+.input-with-button input {
+  flex: 1;
+}
+
+.input-with-button button {
+  padding: 4px 6px;
+  font-size: 11px;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.input-with-button button:hover {
+  background: #f3f4f6;
+}
+
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+}
+
+button.primary-btn {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+button.primary-btn:hover {
+  background-color: #1d4ed8;
+}
+
+button.primary-btn:disabled {
+  background-color: #93c5fd;
+  cursor: not-allowed;
+}
+
+button.danger-btn {
+  width: 100%;
+  padding: 6px;
+  background-color: #ef4444;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  margin-top: 6px;
+  cursor: pointer;
+}
+
+progress {
+  width: 100%;
+  height: 10px;
+  margin-top: 8px;
+}
