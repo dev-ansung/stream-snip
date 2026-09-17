@@ -4,5 +4,8 @@
   "description": "Standalone Chrome Extension for M3U8 Stream Interception & Time-Range Clipping with Stego Decoding",
   "scripts": {
     "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "mux.js": "^6.3.0"
   }
 }

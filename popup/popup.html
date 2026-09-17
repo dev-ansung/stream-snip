@@ -57,10 +57,21 @@
 
     <!-- Output & Download -->
     <section class="section action-section">
-      <label for="filenameInput">Output Filename:</label>
-      <input type="text" id="filenameInput" placeholder="video_clip.ts" />
+      <div class="field-row">
+        <div class="field-group" style="flex: 2;">
+          <label for="filenameInput">Filename:</label>
+          <input type="text" id="filenameInput" placeholder="video_clip.mp4" />
+        </div>
+        <div class="field-group" style="flex: 1;">
+          <label for="formatSelect">Format:</label>
+          <select id="formatSelect">
+            <option value="mp4" selected>MP4</option>
+            <option value="ts">TS</option>
+          </select>
+        </div>
+      </div>
 
-      <button type="button" id="btnDownload" class="primary-btn">⬇️ Download Clip</button>
+      <button type="button" id="btnDownload" class="primary-btn">⬇️ Download MP4 Clip</button>
       <button type="button" id="btnCancel" class="danger-btn" style="display: none;">Cancel</button>
 
       <!-- Progress Tracking -->
@@ -72,10 +83,12 @@
   </main>
 
   <!-- Libraries -->
+  <script src="../lib/mux.min.js"></script>
   <script src="../lib/hls.min.js"></script>
   <script src="../lib/time.js"></script>
   <script src="../lib/stego.js"></script>
   <script src="../lib/stego-loader.js"></script>
+  <script src="../lib/transmuxer.js"></script>
   <script src="../lib/parser.js"></script>
   <script src="../lib/downloader.js"></script>
   <script src="popup.js"></script>

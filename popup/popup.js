@@ -21,6 +21,7 @@ const fullVideoToggle = document.getElementById('fullVideoToggle');
 const clipDurationText = document.getElementById('clipDurationText');
 
 const filenameInput = document.getElementById('filenameInput');
+const formatSelect = document.getElementById('formatSelect');
 const btnDownload = document.getElementById('btnDownload');
 const btnCancel = document.getElementById('btnCancel');
 const progressContainer = document.getElementById('progressContainer');
@@ -69,6 +70,16 @@ fullVideoToggle.addEventListener('change', () => {
   }
   updateClipDuration();
 });
+
+if (formatSelect) {
+  formatSelect.addEventListener('change', () => {
+    const fmt = formatSelect.value;
+    btnDownload.textContent = `⬇️ Download ${fmt.toUpperCase()} Clip`;
+    if (filenameInput.value) {
+      filenameInput.value = filenameInput.value.replace(/\.(mp4|ts)$/i, '') + `.${fmt}`;
+    }
+  });
+}
 
 // Load a stream into the video preview player and parse its timeline
 async function loadStream(stream) {
@@ -134,14 +145,15 @@ async function loadStream(stream) {
     updateClipDuration();
 
     // Default filename derived from URL
+    const fmt = formatSelect ? formatSelect.value : 'mp4';
     try {
       const parsedUrl = new URL(stream.url);
       const parts = parsedUrl.pathname.split('/').filter(Boolean);
       const base = parts.pop() || 'video';
       const cleanBase = base.replace(/\.m3u8$/i, '');
-      filenameInput.value = `${cleanBase}_clip.ts`;
+      filenameInput.value = `${cleanBase}_clip.${fmt}`;
     } catch {
-      filenameInput.value = 'clip_video.ts';
+      filenameInput.value = `clip_video.${fmt}`;
     }
   } catch (err) {
     videoInfoEl.textContent = `Manifest fetch warning: ${err.message}`;
@@ -188,6 +200,7 @@ btnDownload.addEventListener('click', async () => {
 
   activeAbortController = new AbortController();
   const downloader = new StegoDownloader.SegmentDownloader({ concurrency: 6 });
+  const fmt = formatSelect ? formatSelect.value : 'mp4';
 
   try {
     const mergedBytes = await downloader.downloadSegments(
@@ -202,13 +215,13 @@ btnDownload.addEventListener('click', async () => {
       activeAbortController.signal
     );
 
-    progressStatus.textContent = 'Saving file...';
-    let filename = filenameInput.value.trim() || 'video_clip.ts';
-    if (!filename.endsWith('.ts') && !filename.endsWith('.mp4')) {
-      filename += '.ts';
+    progressStatus.textContent = fmt === 'mp4' ? 'Transmuxing to MP4...' : 'Saving file...';
+    let filename = filenameInput.value.trim() || `video_clip.${fmt}`;
+    if (!filename.endsWith(`.${fmt}`)) {
+      filename = filename.replace(/\.(mp4|ts)$/i, '') + `.${fmt}`;
     }
 
-    await downloader.saveToFile(mergedBytes, filename);
+    await downloader.saveToFile(mergedBytes, filename, fmt);
     progressStatus.textContent = `✅ Saved ${filename} successfully!`;
   } catch (err) {
     if (activeAbortController?.signal.aborted) {
