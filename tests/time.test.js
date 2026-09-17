@@ -76,9 +76,17 @@ test('detectBaseNameFromTitle extracts video code or cleans title', () => {
     detectBaseNameFromTitle('[无码破解]ABF-361 人文系女学生沉迷于中年男子的黏腻性爱。黏腻、高湿度、无声的性爱。'),
     'ABF-361'
   );
+  assert.equal(detectBaseNameFromTitle('[Sup] [无码破解]ABF-361'), 'ABF-361');
   assert.equal(detectBaseNameFromTitle('FNS-236 720p HD'), 'FNS-236');
   assert.equal(detectBaseNameFromTitle('FC2-PPV-123456 Video Title'), 'FC2-PPV-123456');
   assert.equal(detectBaseNameFromTitle('Regular Video Without Code'), 'Regular_Video_Without_Code');
 });
+
+test('extractBaseName upgrades generic names to detected code', () => {
+  assert.deepEqual(extractBaseName('video_clip_47_00-54_00', 'ABF-361'), { base: 'ABF-361', sep: '_' });
+  assert.deepEqual(extractBaseName('master_1080p_clip', 'ABF-361'), { base: 'ABF-361', sep: '_' });
+  assert.deepEqual(extractBaseName('MyCustomClip_47_00-54_00', 'ABF-361'), { base: 'MyCustomClip', sep: '_' });
+});
+
 
 

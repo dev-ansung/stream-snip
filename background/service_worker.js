@@ -4,6 +4,7 @@
  */
 
 const tabStreams = new Map();
+const tabMetadata = new Map();
 
 let lastActiveMediaTabId = null;
 
@@ -19,6 +20,13 @@ function headersToObject(headersArray) {
   return headers;
 }
 
+// Track tab updates to keep page title in sync
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (tab?.title) {
+    tabMetadata.set(tabId, { title: tab.title, url: tab.url });
+  }
+});
+
 // Sniff M3U8 requests before sending
 chrome.webRequest.onSendHeaders.addListener(
   details => {
@@ -29,6 +37,13 @@ chrome.webRequest.onSendHeaders.addListener(
     if (!isM3u8) return;
 
     lastActiveMediaTabId = tabId;
+
+    chrome.tabs.get(tabId, tab => {
+      if (!chrome.runtime.lastError && tab?.title) {
+        tabMetadata.set(tabId, { title: tab.title, url: tab.url });
+      }
+    });
+
     const headers = headersToObject(requestHeaders);
     let streams = tabStreams.get(tabId) || [];
 
@@ -57,6 +72,7 @@ chrome.webRequest.onSendHeaders.addListener(
 chrome.webNavigation.onBeforeNavigate.addListener(details => {
   if (details.frameId === 0) {
     tabStreams.delete(details.tabId);
+    tabMetadata.delete(details.tabId);
     chrome.action.setBadgeText({ tabId: details.tabId, text: '' });
   }
 });
@@ -64,6 +80,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(details => {
 // Clean up when tab is closed
 chrome.tabs.onRemoved.addListener(tabId => {
   tabStreams.delete(tabId);
+  tabMetadata.delete(tabId);
 });
 
 // Message listener for popup communication
@@ -71,18 +88,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_STREAMS') {
     const tabId = request.tabId || lastActiveMediaTabId;
     const streams = tabStreams.get(tabId) || [];
+    const meta = tabId ? tabMetadata.get(tabId) : null;
+
     if (tabId) {
       chrome.tabs.get(tabId, tab => {
         const err = chrome.runtime.lastError;
-        sendResponse({
-          streams,
-          tabId,
-          tabTitle: (!err && tab?.title) ? tab.title : ''
-        });
+        const title = (!err && tab?.title) ? tab.title : (meta?.title || '');
+        const url = (!err && tab?.url) ? tab.url : (meta?.url || '');
+        if (title) tabMetadata.set(tabId, { title, url });
+        sendResponse({ streams, tabId, tabTitle: title, tabUrl: url });
       });
       return true;
     }
-    sendResponse({ streams, tabId, tabTitle: '' });
+    sendResponse({ streams, tabId, tabTitle: meta?.title || '', tabUrl: meta?.url || '' });
     return true;
   }
 

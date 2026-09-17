@@ -10,6 +10,7 @@
     "downloads",
     "activeTab",
     "tabs",
+    "scripting",
     "webNavigation"
   ],
   "host_permissions": [
