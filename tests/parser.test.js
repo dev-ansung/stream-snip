@@ -73,3 +73,24 @@ seg3.ts
   assert.equal(firstOnly.length, 1);
   assert.equal(firstOnly[0].index, 0);
 });
+
+test('PlaylistParser infers sibling variants from index-f3 URL', () => {
+  const dummyContent = '#EXTM3U\n#EXTINF:10.0,\nseg0.ts\n';
+  const url = 'https://fc2stream.tv/hls/123/index-f3-v1-a1.m3u8?token=xyz';
+  const variants = PlaylistParser.parseVariants(dummyContent, url);
+
+  assert.equal(variants.length, 4);
+  assert.equal(variants[0].height, 1080);
+  assert.ok(variants[0].url.includes('index-f1-'));
+  assert.ok(variants[0].label.includes('1080p'));
+
+  assert.equal(variants[1].height, 720);
+  assert.ok(variants[1].url.includes('index-f2-'));
+
+  assert.equal(variants[2].height, 480);
+  assert.ok(variants[2].url.includes('index-f3-'));
+
+  assert.equal(variants[3].height, 360);
+  assert.ok(variants[3].url.includes('index-f4-'));
+});
+

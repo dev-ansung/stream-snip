@@ -18,6 +18,13 @@ const streamCountBadge = document.getElementById('streamCount');
 const videoInfoEl = document.getElementById('videoInfo');
 const activeQualityBadge = document.getElementById('activeQualityBadge');
 
+const mediaResolutionEl = document.getElementById('mediaResolution');
+const mediaBitrateEl = document.getElementById('mediaBitrate');
+const mediaCodecsEl = document.getElementById('mediaCodecs');
+const mediaDurationEl = document.getElementById('mediaDuration');
+const mediaSegmentsEl = document.getElementById('mediaSegments');
+const mediaEstSizeEl = document.getElementById('mediaEstSize');
+
 const qualitySection = document.getElementById('qualitySection');
 const qualitySelect = document.getElementById('qualitySelect');
 
@@ -36,6 +43,159 @@ const progressContainer = document.getElementById('progressContainer');
 const downloadProgress = document.getElementById('downloadProgress');
 const progressStatus = document.getElementById('progressStatus');
 const btnOpenTab = document.getElementById('btnOpenTab');
+
+// Media information state
+const mediaInfoState = {
+  width: 0,
+  height: 0,
+  bitrate: 0,
+  videoCodec: '',
+  audioCodec: '',
+  totalDuration: 0,
+  segmentCount: 0,
+  avgSegmentDuration: 0
+};
+
+function resetMediaInfo() {
+  mediaInfoState.width = 0;
+  mediaInfoState.height = 0;
+  mediaInfoState.bitrate = 0;
+  mediaInfoState.videoCodec = '';
+  mediaInfoState.audioCodec = '';
+  mediaInfoState.totalDuration = 0;
+  mediaInfoState.segmentCount = 0;
+  mediaInfoState.avgSegmentDuration = 0;
+  renderMediaDetails();
+}
+
+function getHeightLabel(height) {
+  if (height >= 2160) return '4K';
+  if (height >= 1440) return '2K';
+  if (height >= 1080) return '1080p';
+  if (height >= 720) return '720p';
+  if (height >= 480) return '480p';
+  if (height >= 360) return '360p';
+  return `${height}p`;
+}
+
+function formatCodecName(c) {
+  if (!c) return '';
+  if (c.startsWith('avc1') || c.startsWith('avc3')) return 'H.264 (AVC)';
+  if (c.startsWith('hvc1') || c.startsWith('hev1')) return 'H.265 (HEVC)';
+  if (c.startsWith('mp4a')) return 'AAC';
+  if (c.startsWith('vp09')) return 'VP9';
+  if (c.startsWith('av01')) return 'AV1';
+  if (c.startsWith('opus')) return 'Opus';
+  return c;
+}
+
+function formatCodecString(codecStr) {
+  if (!codecStr) return 'H.264 / AAC';
+  return codecStr.split(',').map(s => formatCodecName(s.trim())).join(' / ');
+}
+
+function renderMediaDetails() {
+  // 1. Resolution
+  if (mediaInfoState.width > 0 && mediaInfoState.height > 0) {
+    const label = getHeightLabel(mediaInfoState.height);
+    mediaResolutionEl.textContent = `${mediaInfoState.width} × ${mediaInfoState.height} (${label})`;
+    activeQualityBadge.textContent = `${label} (${mediaInfoState.width}x${mediaInfoState.height})`;
+  } else if (selectedVariant?.height > 0) {
+    const label = getHeightLabel(selectedVariant.height);
+    const res = selectedVariant.resolution || `${selectedVariant.height}p`;
+    mediaResolutionEl.textContent = `${res} (${label})`;
+    activeQualityBadge.textContent = label;
+  } else if (selectedVariant?.resolution) {
+    mediaResolutionEl.textContent = selectedVariant.resolution;
+    activeQualityBadge.textContent = selectedVariant.resolution;
+  } else {
+    mediaResolutionEl.textContent = 'Detecting...';
+    activeQualityBadge.textContent = 'Auto';
+  }
+
+  // 2. Bitrate
+  const bps = mediaInfoState.bitrate || selectedVariant?.bandwidth || 0;
+  mediaBitrateEl.textContent = bps > 0 ? StegoTime.formatBitrate(bps) : '--';
+
+  // 3. Codecs
+  let codecStr = '';
+  if (mediaInfoState.videoCodec || mediaInfoState.audioCodec) {
+    const v = formatCodecName(mediaInfoState.videoCodec);
+    const a = formatCodecName(mediaInfoState.audioCodec);
+    codecStr = [v, a].filter(Boolean).join(' / ');
+  } else if (selectedVariant?.codecs) {
+    codecStr = formatCodecString(selectedVariant.codecs);
+  }
+  mediaCodecsEl.textContent = codecStr || 'H.264 / AAC';
+
+  // 4. Duration
+  if (mediaInfoState.totalDuration > 0) {
+    mediaDurationEl.textContent = StegoTime.formatDuration(mediaInfoState.totalDuration);
+    videoInfoEl.textContent = `Duration: ${StegoTime.formatDuration(mediaInfoState.totalDuration)} (${mediaInfoState.segmentCount} segments)`;
+  } else {
+    mediaDurationEl.textContent = '--:--';
+  }
+
+  // 5. Segments
+  if (mediaInfoState.segmentCount > 0) {
+    const avg = mediaInfoState.avgSegmentDuration > 0 
+      ? ` (~${mediaInfoState.avgSegmentDuration.toFixed(1)}s/seg)`
+      : '';
+    mediaSegmentsEl.textContent = `${mediaInfoState.segmentCount}${avg}`;
+  } else {
+    mediaSegmentsEl.textContent = '--';
+  }
+
+  // 6. Estimated file size
+  updateEstimatedSizes();
+}
+
+function updateEstimatedSizes() {
+  const bps = mediaInfoState.bitrate || selectedVariant?.bandwidth || 0;
+  if (bps > 0 && mediaInfoState.totalDuration > 0) {
+    const fullBytes = (bps / 8) * mediaInfoState.totalDuration;
+    let clipSec = mediaInfoState.totalDuration;
+    if (!fullVideoToggle.checked) {
+      try {
+        const s = StegoTime.parseTimestamp(startTimeInput.value);
+        const e = StegoTime.parseTimestamp(endTimeInput.value);
+        if (e > s) clipSec = e - s;
+      } catch {}
+    }
+    const clipBytes = (bps / 8) * clipSec;
+    mediaEstSizeEl.textContent = `Full: ~${StegoTime.formatBytes(fullBytes)}`;
+    clipDurationText.textContent = `Clip: ${StegoTime.formatDuration(clipSec)} (~${StegoTime.formatBytes(clipBytes)})`;
+  } else {
+    mediaEstSizeEl.textContent = '--';
+  }
+}
+
+// Update stream dropdown option text when resolution is discovered
+function updateStreamOptionWithResolution(streamUrl, width, height) {
+  if (!streamUrl || !width || !height) return;
+  const label = getHeightLabel(height);
+  for (const opt of streamSelect.options) {
+    if (opt.value === streamUrl && !opt.textContent.includes('×') && !opt.textContent.includes(`${height}p`)) {
+      opt.textContent = `[${label} • ${width}x${height}] ${opt.textContent}`;
+    }
+  }
+}
+
+// Video dimensions listener
+function onVideoDimensionsChanged() {
+  if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+    mediaInfoState.width = videoEl.videoWidth;
+    mediaInfoState.height = videoEl.videoHeight;
+    renderMediaDetails();
+    updateDefaultFilename();
+    updateStreamOptionWithResolution(selectedStream?.url, videoEl.videoWidth, videoEl.videoHeight);
+  }
+}
+
+videoEl.addEventListener('loadedmetadata', onVideoDimensionsChanged);
+videoEl.addEventListener('resize', onVideoDimensionsChanged);
+videoEl.addEventListener('canplay', onVideoDimensionsChanged);
+videoEl.addEventListener('playing', onVideoDimensionsChanged);
 
 // Check if running in full-page mode
 const urlParams = new URLSearchParams(window.location.search);
@@ -64,7 +224,13 @@ function updateClipDuration() {
     const startSec = StegoTime.parseTimestamp(startTimeInput.value);
     const endSec = StegoTime.parseTimestamp(endTimeInput.value);
     const diff = Math.max(0, endSec - startSec);
-    clipDurationText.textContent = `Clip: ${StegoTime.formatDuration(diff)}`;
+    const bps = mediaInfoState.bitrate || selectedVariant?.bandwidth || 0;
+    if (bps > 0) {
+      const clipBytes = (bps / 8) * diff;
+      clipDurationText.textContent = `Clip: ${StegoTime.formatDuration(diff)} (~${StegoTime.formatBytes(clipBytes)})`;
+    } else {
+      clipDurationText.textContent = `Clip: ${StegoTime.formatDuration(diff)}`;
+    }
   } catch {
     clipDurationText.textContent = 'Clip: --:--';
   }
@@ -120,13 +286,14 @@ function updateDefaultFilename() {
     const parts = parsedUrl.pathname.split('/').filter(Boolean);
     const base = parts.pop() || 'video';
     let cleanBase = base.replace(/\.m3u8$/i, '');
-    if (cleanBase === 'master' || cleanBase === 'index') {
+    if (cleanBase === 'master' || cleanBase === 'index' || cleanBase.startsWith('index-')) {
       const prev = parts.pop();
       if (prev) cleanBase = `${prev}_${cleanBase}`;
     }
 
-    if (selectedVariant?.height) {
-      cleanBase += `_${selectedVariant.height}p`;
+    const height = mediaInfoState.height || selectedVariant?.height;
+    if (height) {
+      cleanBase += `_${height}p`;
     }
     filenameInput.value = `${cleanBase}_clip.${fmt}`;
   } catch {
@@ -136,8 +303,23 @@ function updateDefaultFilename() {
 
 // Load media variant playlist (resolution / quality level)
 async function loadVariant(variant) {
+  resetMediaInfo();
   selectedVariant = variant;
-  activeQualityBadge.textContent = variant.height ? `${variant.height}p` : (variant.resolution || 'Auto');
+  if (variant.height) mediaInfoState.height = variant.height;
+  if (variant.resolution) {
+    const [w, h] = variant.resolution.split('x').map(Number);
+    if (w && h) {
+      mediaInfoState.width = w;
+      mediaInfoState.height = h;
+    }
+  }
+  if (variant.bandwidth) mediaInfoState.bitrate = variant.bandwidth;
+  if (variant.codecs) {
+    const [v, a] = variant.codecs.split(',');
+    if (v) mediaInfoState.videoCodec = v.trim();
+    if (a) mediaInfoState.audioCodec = a.trim();
+  }
+  renderMediaDetails();
   videoInfoEl.textContent = 'Loading manifest...';
   currentTimeline = null;
 
@@ -157,8 +339,71 @@ async function loadVariant(variant) {
     hlsInstance.loadSource(variant.url);
     hlsInstance.attachMedia(videoEl);
 
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-      videoInfoEl.textContent = 'Ready to preview';
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+      videoInfoEl.textContent = 'Preview ready';
+      if (data.levels && data.levels[0]) {
+        const lvl = data.levels[0];
+        if (lvl.width && lvl.height) {
+          mediaInfoState.width = lvl.width;
+          mediaInfoState.height = lvl.height;
+        }
+        if (lvl.bitrate && !mediaInfoState.bitrate) {
+          mediaInfoState.bitrate = lvl.bitrate;
+        }
+        renderMediaDetails();
+      }
+    });
+
+    hlsInstance.on(Hls.Events.BUFFER_CREATED, (event, data) => {
+      if (data.tracks) {
+        if (data.tracks.video?.metadata) {
+          mediaInfoState.width = data.tracks.video.metadata.width || mediaInfoState.width;
+          mediaInfoState.height = data.tracks.video.metadata.height || mediaInfoState.height;
+        }
+        if (data.tracks.video?.codec) {
+          mediaInfoState.videoCodec = data.tracks.video.codec;
+        }
+        if (data.tracks.audio?.codec) {
+          mediaInfoState.audioCodec = data.tracks.audio.codec;
+        }
+        renderMediaDetails();
+        updateDefaultFilename();
+      }
+    });
+
+    hlsInstance.on(Hls.Events.LEVEL_LOADED, (event, data) => {
+      if (data.details) {
+        if (data.details.totalduration) {
+          mediaInfoState.totalDuration = data.details.totalduration;
+        }
+        if (data.details.fragments) {
+          mediaInfoState.segmentCount = data.details.fragments.length;
+          mediaInfoState.avgSegmentDuration = data.details.targetduration || (data.details.totalduration / data.details.fragments.length);
+        }
+      }
+      const lvl = hlsInstance.levels[data.level];
+      if (lvl) {
+        if (lvl.bitrate && !mediaInfoState.bitrate) mediaInfoState.bitrate = lvl.bitrate;
+        if (lvl.width && lvl.height) {
+          mediaInfoState.width = lvl.width;
+          mediaInfoState.height = lvl.height;
+        }
+      }
+      renderMediaDetails();
+    });
+
+    hlsInstance.on(Hls.Events.FRAG_LOADED, (event, data) => {
+      if (data.frag && data.frag.stats && data.frag.duration > 0) {
+        const fragBytes = data.frag.stats.total;
+        const dur = data.frag.duration;
+        if (fragBytes > 0 && dur > 0) {
+          const measuredBps = Math.round((fragBytes * 8) / dur);
+          if (!mediaInfoState.bitrate || mediaInfoState.bitrate === 0) {
+            mediaInfoState.bitrate = measuredBps;
+            renderMediaDetails();
+          }
+        }
+      }
     });
 
     hlsInstance.on(Hls.Events.ERROR, (event, data) => {
@@ -177,8 +422,14 @@ async function loadVariant(variant) {
 
     currentTimeline = StegoParser.PlaylistParser.parseManifest(subText, variant.url);
     const totalSec = currentTimeline.totalDuration;
+    mediaInfoState.totalDuration = totalSec;
+    mediaInfoState.segmentCount = currentTimeline.segments.length;
+    mediaInfoState.avgSegmentDuration = currentTimeline.segments.length > 0
+      ? totalSec / currentTimeline.segments.length
+      : 0;
 
-    videoInfoEl.textContent = `Duration: ${StegoTime.formatDuration(totalSec)} (${currentTimeline.segments.length} segments)`;
+    renderMediaDetails();
+
     if (!startTimeInput.value || startTimeInput.value === '00:00') {
       startTimeInput.value = '00:00';
     }
@@ -202,16 +453,25 @@ async function loadStream(stream) {
   });
 
   try {
-    const masterResp = await fetch(stream.url);
+    let manifestUrl = stream.url;
+    // Check if a master playlist is available in currentStreams
+    if (stream.url.includes('index-f') || (!stream.url.includes('master') && stream.url.includes('index'))) {
+      const masterCandidate = currentStreams.find(s => s.url.includes('master'));
+      if (masterCandidate) {
+        manifestUrl = masterCandidate.url;
+      }
+    }
+
+    const masterResp = await fetch(manifestUrl);
     const masterText = await masterResp.text();
 
-    currentVariants = StegoParser.PlaylistParser.parseVariants(masterText, stream.url);
+    currentVariants = StegoParser.PlaylistParser.parseVariants(masterText, manifestUrl);
 
     // Setup Quality / Resolution dropdown
     qualitySelect.innerHTML = '';
     if (currentVariants.length > 1) {
       qualitySection.style.display = 'block';
-      currentVariants.forEach((v, idx) => {
+      currentVariants.forEach((v) => {
         const opt = document.createElement('option');
         opt.value = v.url;
         opt.textContent = v.label;
@@ -332,6 +592,23 @@ function formatStreamTitle(stream, idx) {
     const u = new URL(stream.url);
     const parts = u.pathname.split('/').filter(Boolean);
     const file = parts.pop() || 'master.m3u8';
+
+    if (file.includes('master') || stream.url.includes('urlset/master')) {
+      return `[Master] Multi-Quality Stream • ${u.hostname}`;
+    }
+
+    const fc2 = file.match(/index-f([1-4])-/i);
+    if (fc2) {
+      const tierMap = { '1': '1080p Full HD', '2': '720p HD', '3': '480p SD', '4': '360p Low' };
+      const quality = tierMap[fc2[1]] || `F${fc2[1]}`;
+      return `[${quality}] ${u.hostname} • ${file}`;
+    }
+
+    const resMatch = file.match(/(2160|1440|1080|720|480|360)p/i);
+    if (resMatch) {
+      return `[${resMatch[1]}p] ${u.hostname} • ${file}`;
+    }
+
     return `[${idx + 1}] ${u.hostname} • ${file}`;
   } catch {
     return `Stream ${idx + 1}`;
@@ -362,6 +639,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnDownload.disabled = true;
       return;
     }
+
+    // Prioritize master playlists first
+    currentStreams.sort((a, b) => {
+      const aIsMaster = a.url.includes('master') ? 1 : 0;
+      const bIsMaster = b.url.includes('master') ? 1 : 0;
+      return bIsMaster - aIsMaster;
+    });
 
     btnDownload.disabled = false;
     currentStreams.forEach((s, idx) => {

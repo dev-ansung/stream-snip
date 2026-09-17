@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseTimestamp, formatDuration } = require('../lib/time.js');
+const { parseTimestamp, formatDuration, formatBitrate, formatBytes } = require('../lib/time.js');
 
 test('parseTimestamp handles MM:SS', () => {
   assert.equal(parseTimestamp('01:40'), 100);
@@ -29,3 +29,17 @@ test('formatDuration formats correctly', () => {
   assert.equal(formatDuration(3780), '01:03:00');
   assert.equal(formatDuration(-1), '00:00');
 });
+
+test('formatBitrate formats kbps and Mbps', () => {
+  assert.equal(formatBitrate(800000), '800 kbps');
+  assert.equal(formatBitrate(2450000), '2.45 Mbps');
+  assert.equal(formatBitrate(0), '--');
+});
+
+test('formatBytes formats KB, MB, and GB', () => {
+  assert.equal(formatBytes(500 * 1024), '500.0 KB');
+  assert.equal(formatBytes(45 * 1024 * 1024), '45.0 MB');
+  assert.equal(formatBytes(2.5 * 1024 * 1024 * 1024), '2.50 GB');
+  assert.equal(formatBytes(0), '--');
+});
+
