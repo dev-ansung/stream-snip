@@ -12,6 +12,13 @@ high/index.m3u8
 `;
   const resolved = PlaylistParser.resolveSubPlaylist(masterM3u8, 'https://cdn.example.com/master.m3u8');
   assert.equal(resolved, 'https://cdn.example.com/high/index.m3u8');
+
+  const variants = PlaylistParser.parseVariants(masterM3u8, 'https://cdn.example.com/master.m3u8');
+  assert.equal(variants.length, 2);
+  assert.equal(variants[0].resolution, '1280x720');
+  assert.equal(variants[0].height, 720);
+  assert.ok(variants[0].label.includes('720p'));
+  assert.equal(variants[1].resolution, '640x360');
 });
 
 test('PlaylistParser parses media playlist segments and builds timeline', () => {

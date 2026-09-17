@@ -5,6 +5,8 @@
 
 const tabStreams = new Map();
 
+let lastActiveMediaTabId = null;
+
 // Helper to extract headers into an object
 function headersToObject(headersArray) {
   const headers = {};
@@ -26,6 +28,7 @@ chrome.webRequest.onSendHeaders.addListener(
     const isM3u8 = url.includes('.m3u8') || url.includes('/m3u8') || url.includes('urlset/master');
     if (!isM3u8) return;
 
+    lastActiveMediaTabId = tabId;
     const headers = headersToObject(requestHeaders);
     let streams = tabStreams.get(tabId) || [];
 
@@ -66,9 +69,9 @@ chrome.tabs.onRemoved.addListener(tabId => {
 // Message listener for popup communication
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_STREAMS') {
-    const tabId = request.tabId;
+    const tabId = request.tabId || lastActiveMediaTabId;
     const streams = tabStreams.get(tabId) || [];
-    sendResponse({ streams });
+    sendResponse({ streams, tabId });
     return true;
   }
 

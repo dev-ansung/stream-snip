@@ -1,17 +1,25 @@
 /**
- * UI controller for the StegoClip Popup.
+ * UI controller for the StegoClip Popup & Full-Page Studio.
  */
 
 let hlsInstance = null;
 let currentStreams = [];
 let selectedStream = null;
+let currentVariants = [];
+let selectedVariant = null;
 let currentTimeline = null;
 let activeAbortController = null;
+let currentTabId = null;
 
+// DOM Elements
 const videoEl = document.getElementById('previewPlayer');
 const streamSelect = document.getElementById('streamSelect');
 const streamCountBadge = document.getElementById('streamCount');
 const videoInfoEl = document.getElementById('videoInfo');
+const activeQualityBadge = document.getElementById('activeQualityBadge');
+
+const qualitySection = document.getElementById('qualitySection');
+const qualitySelect = document.getElementById('qualitySelect');
 
 const startTimeInput = document.getElementById('startTime');
 const endTimeInput = document.getElementById('endTime');
@@ -27,6 +35,28 @@ const btnCancel = document.getElementById('btnCancel');
 const progressContainer = document.getElementById('progressContainer');
 const downloadProgress = document.getElementById('downloadProgress');
 const progressStatus = document.getElementById('progressStatus');
+const btnOpenTab = document.getElementById('btnOpenTab');
+
+// Check if running in full-page mode
+const urlParams = new URLSearchParams(window.location.search);
+const isFullPageMode = urlParams.get('mode') === 'full' || window.innerWidth > 500;
+const tabIdFromUrl = urlParams.get('tabId') ? parseInt(urlParams.get('tabId'), 10) : null;
+
+if (isFullPageMode) {
+  document.body.classList.add('full-page');
+  if (btnOpenTab) {
+    btnOpenTab.style.display = 'none';
+  }
+}
+
+if (btnOpenTab) {
+  btnOpenTab.addEventListener('click', () => {
+    const tabParam = currentTabId ? `&tabId=${currentTabId}` : '';
+    chrome.tabs.create({
+      url: chrome.runtime.getURL(`popup/popup.html?mode=full${tabParam}`)
+    });
+  });
+}
 
 // Update clip duration display
 function updateClipDuration() {
@@ -81,19 +111,37 @@ if (formatSelect) {
   });
 }
 
-// Load a stream into the video preview player and parse its timeline
-async function loadStream(stream) {
-  selectedStream = stream;
+// Generate sensible default output filename
+function updateDefaultFilename() {
+  const fmt = formatSelect ? formatSelect.value : 'mp4';
+  try {
+    const targetUrl = selectedVariant?.url || selectedStream?.url || '';
+    const parsedUrl = new URL(targetUrl);
+    const parts = parsedUrl.pathname.split('/').filter(Boolean);
+    const base = parts.pop() || 'video';
+    let cleanBase = base.replace(/\.m3u8$/i, '');
+    if (cleanBase === 'master' || cleanBase === 'index') {
+      const prev = parts.pop();
+      if (prev) cleanBase = `${prev}_${cleanBase}`;
+    }
+
+    if (selectedVariant?.height) {
+      cleanBase += `_${selectedVariant.height}p`;
+    }
+    filenameInput.value = `${cleanBase}_clip.${fmt}`;
+  } catch {
+    filenameInput.value = `video_clip.${fmt}`;
+  }
+}
+
+// Load media variant playlist (resolution / quality level)
+async function loadVariant(variant) {
+  selectedVariant = variant;
+  activeQualityBadge.textContent = variant.height ? `${variant.height}p` : (variant.resolution || 'Auto');
   videoInfoEl.textContent = 'Loading manifest...';
   currentTimeline = null;
 
-  // Apply DNR session rules to authenticate CDN requests made by the extension
-  chrome.runtime.sendMessage({
-    type: 'APPLY_DNR_RULES',
-    headers: stream.headers
-  });
-
-  // 1. Initialize preview video player with StegoFragmentLoader
+  // 1. Attach to preview player
   if (hlsInstance) {
     hlsInstance.destroy();
     hlsInstance = null;
@@ -106,7 +154,7 @@ async function loadStream(stream) {
       lowLatencyMode: false
     });
 
-    hlsInstance.loadSource(stream.url);
+    hlsInstance.loadSource(variant.url);
     hlsInstance.attachMedia(videoEl);
 
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -119,22 +167,15 @@ async function loadStream(stream) {
       }
     });
   } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-    videoEl.src = stream.url;
+    videoEl.src = variant.url;
   }
 
-  // 2. Fetch and parse timeline in parallel for clipping calculations
+  // 2. Parse sub-manifest timeline for clipping calculations
   try {
-    const masterResp = await fetch(stream.url);
-    const masterText = await masterResp.text();
+    const subResp = await fetch(variant.url);
+    const subText = await subResp.text();
 
-    const subUrl = StegoParser.PlaylistParser.resolveSubPlaylist(masterText, stream.url);
-    let subText = masterText;
-    if (subUrl !== stream.url) {
-      const subResp = await fetch(subUrl);
-      subText = await subResp.text();
-    }
-
-    currentTimeline = StegoParser.PlaylistParser.parseManifest(subText, subUrl);
+    currentTimeline = StegoParser.PlaylistParser.parseManifest(subText, variant.url);
     const totalSec = currentTimeline.totalDuration;
 
     videoInfoEl.textContent = `Duration: ${StegoTime.formatDuration(totalSec)} (${currentTimeline.segments.length} segments)`;
@@ -143,27 +184,62 @@ async function loadStream(stream) {
     }
     endTimeInput.value = StegoTime.formatDuration(totalSec);
     updateClipDuration();
-
-    // Default filename derived from URL
-    const fmt = formatSelect ? formatSelect.value : 'mp4';
-    try {
-      const parsedUrl = new URL(stream.url);
-      const parts = parsedUrl.pathname.split('/').filter(Boolean);
-      const base = parts.pop() || 'video';
-      const cleanBase = base.replace(/\.m3u8$/i, '');
-      filenameInput.value = `${cleanBase}_clip.${fmt}`;
-    } catch {
-      filenameInput.value = `clip_video.${fmt}`;
-    }
+    updateDefaultFilename();
   } catch (err) {
-    videoInfoEl.textContent = `Manifest fetch warning: ${err.message}`;
+    videoInfoEl.textContent = `Manifest error: ${err.message}`;
   }
 }
 
+// Load a stream: resolve master playlist variants and populate quality selector
+async function loadStream(stream) {
+  selectedStream = stream;
+  videoInfoEl.textContent = 'Discovering media qualities...';
+
+  // Apply DNR session rules to authenticate CDN requests
+  chrome.runtime.sendMessage({
+    type: 'APPLY_DNR_RULES',
+    headers: stream.headers
+  });
+
+  try {
+    const masterResp = await fetch(stream.url);
+    const masterText = await masterResp.text();
+
+    currentVariants = StegoParser.PlaylistParser.parseVariants(masterText, stream.url);
+
+    // Setup Quality / Resolution dropdown
+    qualitySelect.innerHTML = '';
+    if (currentVariants.length > 1) {
+      qualitySection.style.display = 'block';
+      currentVariants.forEach((v, idx) => {
+        const opt = document.createElement('option');
+        opt.value = v.url;
+        opt.textContent = v.label;
+        qualitySelect.appendChild(opt);
+      });
+    } else {
+      qualitySection.style.display = 'none';
+    }
+
+    // Default to highest quality variant
+    await loadVariant(currentVariants[0]);
+  } catch (err) {
+    videoInfoEl.textContent = `Failed fetching stream: ${err.message}`;
+  }
+}
+
+qualitySelect.addEventListener('change', () => {
+  const chosenUrl = qualitySelect.value;
+  const variant = currentVariants.find(v => v.url === chosenUrl);
+  if (variant) {
+    loadVariant(variant);
+  }
+});
+
 // Download Button Handler
 btnDownload.addEventListener('click', async () => {
-  if (!selectedStream || !currentTimeline) {
-    alert('Please select a valid stream first.');
+  if (!selectedVariant || !currentTimeline) {
+    alert('Please select a valid stream and quality first.');
     return;
   }
 
@@ -250,13 +326,30 @@ streamSelect.addEventListener('change', () => {
   }
 });
 
+// Format informative label for each stream in the selector
+function formatStreamTitle(stream, idx) {
+  try {
+    const u = new URL(stream.url);
+    const parts = u.pathname.split('/').filter(Boolean);
+    const file = parts.pop() || 'master.m3u8';
+    return `[${idx + 1}] ${u.hostname} • ${file}`;
+  } catch {
+    return `Stream ${idx + 1}`;
+  }
+}
+
 // Initialize popup on open
 document.addEventListener('DOMContentLoaded', async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !tab.id) return;
+  let targetId = tabIdFromUrl;
 
-  chrome.runtime.sendMessage({ type: 'GET_STREAMS', tabId: tab.id }, response => {
+  if (!targetId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetId = tab?.id || null;
+  }
+
+  chrome.runtime.sendMessage({ type: 'GET_STREAMS', tabId: targetId }, response => {
     currentStreams = response?.streams || [];
+    currentTabId = response?.tabId || targetId;
     streamCountBadge.textContent = `${currentStreams.length} stream${currentStreams.length === 1 ? '' : 's'}`;
 
     streamSelect.innerHTML = '';
@@ -274,12 +367,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentStreams.forEach((s, idx) => {
       const opt = document.createElement('option');
       opt.value = s.url;
-      try {
-        const u = new URL(s.url);
-        opt.textContent = `[${idx + 1}] ${u.hostname}${u.pathname.slice(0, 32)}...`;
-      } catch {
-        opt.textContent = `Stream ${idx + 1}`;
-      }
+      opt.textContent = formatStreamTitle(s, idx);
       streamSelect.appendChild(opt);
     });
 
