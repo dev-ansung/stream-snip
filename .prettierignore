@@ -1,0 +1,6 @@
+node_modules/
+lib/hls.min.js
+lib/mux.min.js
+pnpm-lock.yaml
+coverage/
+dist/

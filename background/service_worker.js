@@ -29,7 +29,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 // Sniff M3U8 requests before sending
 chrome.webRequest.onSendHeaders.addListener(
-  details => {
+  (details) => {
     const { url, tabId, requestHeaders } = details;
     if (tabId < 0) return;
 
@@ -38,17 +38,17 @@ chrome.webRequest.onSendHeaders.addListener(
 
     lastActiveMediaTabId = tabId;
 
-    chrome.tabs.get(tabId, tab => {
+    chrome.tabs.get(tabId, (tab) => {
       if (!chrome.runtime.lastError && tab?.title) {
         tabMetadata.set(tabId, { title: tab.title, url: tab.url });
       }
     });
 
     const headers = headersToObject(requestHeaders);
-    let streams = tabStreams.get(tabId) || [];
+    const streams = tabStreams.get(tabId) || [];
 
     // Avoid duplicate URL registrations
-    const exists = streams.some(s => s.url === url);
+    const exists = streams.some((s) => s.url === url);
     if (!exists) {
       streams.unshift({
         url,
@@ -69,7 +69,7 @@ chrome.webRequest.onSendHeaders.addListener(
 );
 
 // Reset stream cache on top-level navigation
-chrome.webNavigation.onBeforeNavigate.addListener(details => {
+chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId === 0) {
     tabStreams.delete(details.tabId);
     tabMetadata.delete(details.tabId);
@@ -78,7 +78,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(details => {
 });
 
 // Clean up when tab is closed
-chrome.tabs.onRemoved.addListener(tabId => {
+chrome.tabs.onRemoved.addListener((tabId) => {
   tabStreams.delete(tabId);
   tabMetadata.delete(tabId);
 });
@@ -91,10 +91,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const meta = tabId ? tabMetadata.get(tabId) : null;
 
     if (tabId) {
-      chrome.tabs.get(tabId, tab => {
+      chrome.tabs.get(tabId, (tab) => {
         const err = chrome.runtime.lastError;
-        const title = (!err && tab?.title) ? tab.title : (meta?.title || '');
-        const url = (!err && tab?.url) ? tab.url : (meta?.url || '');
+        const title = !err && tab?.title ? tab.title : meta?.title || '';
+        const url = !err && tab?.url ? tab.url : meta?.url || '';
         if (title) tabMetadata.set(tabId, { title, url });
         sendResponse({ streams, tabId, tabTitle: title, tabUrl: url });
       });
@@ -118,17 +118,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
 
       if (modifyHeaders.length > 0) {
-        rules.addRules = [{
-          id: 1,
-          priority: 1,
-          action: {
-            type: 'modifyHeaders',
-            requestHeaders: modifyHeaders
-          },
-          condition: {
-            resourceTypes: ['xmlhttprequest', 'media', 'image']
+        rules.addRules = [
+          {
+            id: 1,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders',
+              requestHeaders: modifyHeaders
+            },
+            condition: {
+              resourceTypes: ['xmlhttprequest', 'media', 'image']
+            }
           }
-        }];
+        ];
       }
     }
 

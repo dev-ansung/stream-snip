@@ -1,151 +1,162 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>StegoClip - HLS Video Clipper & Studio</title>
-  <link rel="stylesheet" href="popup.css" />
-</head>
-<body>
-  <header>
-    <div class="header-left">
-      <h1>🎬 StegoClip</h1>
-      <span id="streamCount" class="badge">0 streams</span>
-    </div>
-    <div class="header-right">
-      <button id="btnOpenTab" type="button" class="header-action-btn" title="Open as full-page studio in new tab">⛶ Open Full Page</button>
-    </div>
-  </header>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StegoClip - HLS Video Clipper & Studio</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <div class="header-left">
+        <h1>🎬 StegoClip</h1>
+        <span id="streamCount" class="badge">0 streams</span>
+      </div>
+      <div class="header-right">
+        <button
+          id="btnOpenTab"
+          type="button"
+          class="header-action-btn"
+          title="Open as full-page studio in new tab"
+        >
+          ⛶ Open Full Page
+        </button>
+      </div>
+    </header>
 
-  <main class="app-layout">
-    <!-- Left Column: Video Preview & Stream Media Details -->
-    <div class="player-column card">
-      <section class="section video-section">
-        <video id="previewPlayer" controls playsinline></video>
-        <div class="stream-status-bar">
-          <span id="videoInfo" class="meta-info">Duration: --:--</span>
-          <span id="activeQualityBadge" class="badge-subtle">Auto</span>
-        </div>
-      </section>
+    <main class="app-layout">
+      <!-- Left Column: Video Preview & Stream Media Details -->
+      <div class="player-column card">
+        <section class="section video-section">
+          <video id="previewPlayer" controls playsinline></video>
+          <div class="stream-status-bar">
+            <span id="videoInfo" class="meta-info">Duration: --:--</span>
+            <span id="activeQualityBadge" class="badge-subtle">Auto</span>
+          </div>
+        </section>
 
-      <!-- Media Stream Information -->
-      <section class="section media-info-section">
-        <div class="media-info-header">
-          <span class="media-info-title">📊 Media Stream Info</span>
-          <span id="mediaLiveIndicator" class="badge-live">Live</span>
-        </div>
-        <div class="media-info-grid">
-          <div class="media-info-item">
-            <span class="media-info-label">Resolution</span>
-            <span id="mediaResolution" class="media-info-value">Detecting...</span>
+        <!-- Media Stream Information -->
+        <section class="section media-info-section">
+          <div class="media-info-header">
+            <span class="media-info-title">📊 Media Stream Info</span>
+            <span id="mediaLiveIndicator" class="badge-live">Live</span>
           </div>
-          <div class="media-info-item">
-            <span class="media-info-label">Bitrate</span>
-            <span id="mediaBitrate" class="media-info-value">--</span>
+          <div class="media-info-grid">
+            <div class="media-info-item">
+              <span class="media-info-label">Resolution</span>
+              <span id="mediaResolution" class="media-info-value">Detecting...</span>
+            </div>
+            <div class="media-info-item">
+              <span class="media-info-label">Bitrate</span>
+              <span id="mediaBitrate" class="media-info-value">--</span>
+            </div>
+            <div class="media-info-item">
+              <span class="media-info-label">Codecs</span>
+              <span id="mediaCodecs" class="media-info-value">--</span>
+            </div>
+            <div class="media-info-item">
+              <span class="media-info-label">Duration</span>
+              <span id="mediaDuration" class="media-info-value">--:--</span>
+            </div>
+            <div class="media-info-item">
+              <span class="media-info-label">Segments</span>
+              <span id="mediaSegments" class="media-info-value">--</span>
+            </div>
+            <div class="media-info-item">
+              <span class="media-info-label">Est. File Size</span>
+              <span id="mediaEstSize" class="media-info-value">--</span>
+            </div>
           </div>
-          <div class="media-info-item">
-            <span class="media-info-label">Codecs</span>
-            <span id="mediaCodecs" class="media-info-value">--</span>
-          </div>
-          <div class="media-info-item">
-            <span class="media-info-label">Duration</span>
-            <span id="mediaDuration" class="media-info-value">--:--</span>
-          </div>
-          <div class="media-info-item">
-            <span class="media-info-label">Segments</span>
-            <span id="mediaSegments" class="media-info-value">--</span>
-          </div>
-          <div class="media-info-item">
-            <span class="media-info-label">Est. File Size</span>
-            <span id="mediaEstSize" class="media-info-value">--</span>
-          </div>
-        </div>
-      </section>
-    </div>
+        </section>
+      </div>
 
-    <!-- Right Column: Stream Details, Range & Download Controls -->
-    <div class="controls-column card">
-      <!-- Stream Selector -->
-      <section class="section">
-        <label for="streamSelect">Select Stream:</label>
-        <select id="streamSelect">
-          <option value="">Searching for active streams...</option>
-        </select>
-      </section>
+      <!-- Right Column: Stream Details, Range & Download Controls -->
+      <div class="controls-column card">
+        <!-- Stream Selector -->
+        <section class="section">
+          <label for="streamSelect">Select Stream:</label>
+          <select id="streamSelect">
+            <option value="">Searching for active streams...</option>
+          </select>
+        </section>
 
-      <!-- Quality / Resolution Selector -->
-      <section class="section" id="qualitySection" style="display: none;">
-        <label for="qualitySelect">Quality / Resolution:</label>
-        <select id="qualitySelect">
-          <option value="">Loading qualities...</option>
-        </select>
-      </section>
+        <!-- Quality / Resolution Selector -->
+        <section class="section" id="qualitySection" style="display: none">
+          <label for="qualitySelect">Quality / Resolution:</label>
+          <select id="qualitySelect">
+            <option value="">Loading qualities...</option>
+          </select>
+        </section>
 
-      <!-- Range Selection Controls -->
-      <section class="section range-section">
-        <div class="field-row">
-          <div class="field-group">
-            <label for="startTime">Start Time:</label>
-            <div class="input-with-button">
-              <input type="text" id="startTime" value="00:00" />
-              <button type="button" id="btnSetStart" title="Set to current video playback time">⏱️ Current</button>
+        <!-- Range Selection Controls -->
+        <section class="section range-section">
+          <div class="field-row">
+            <div class="field-group">
+              <label for="startTime">Start Time:</label>
+              <div class="input-with-button">
+                <input type="text" id="startTime" value="00:00" />
+                <button type="button" id="btnSetStart" title="Set to current video playback time">
+                  ⏱️ Current
+                </button>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label for="endTime">End Time:</label>
+              <div class="input-with-button">
+                <input type="text" id="endTime" value="00:00" />
+                <button type="button" id="btnSetEnd" title="Set to current video playback time">
+                  ⏱️ Current
+                </button>
+              </div>
             </div>
           </div>
 
-          <div class="field-group">
-            <label for="endTime">End Time:</label>
-            <div class="input-with-button">
-              <input type="text" id="endTime" value="00:00" />
-              <button type="button" id="btnSetEnd" title="Set to current video playback time">⏱️ Current</button>
+          <div class="toggle-row">
+            <label> <input type="checkbox" id="fullVideoToggle" /> Download Full Video </label>
+            <span id="clipDurationText" class="meta-info">Clip: 00:00</span>
+          </div>
+        </section>
+
+        <!-- Output & Download -->
+        <section class="section action-section">
+          <div class="field-row">
+            <div class="field-group" style="flex: 2">
+              <label for="filenameInput">Filename:</label>
+              <input type="text" id="filenameInput" placeholder="video_clip" />
+            </div>
+            <div class="field-group" style="flex: 1">
+              <label for="formatSelect">Format:</label>
+              <select id="formatSelect">
+                <option value="mp4" selected>MP4</option>
+                <option value="ts">TS</option>
+              </select>
             </div>
           </div>
-        </div>
 
-        <div class="toggle-row">
-          <label>
-            <input type="checkbox" id="fullVideoToggle" /> Download Full Video
-          </label>
-          <span id="clipDurationText" class="meta-info">Clip: 00:00</span>
-        </div>
-      </section>
+          <button type="button" id="btnDownload" class="primary-btn">⬇️ Download MP4 Clip</button>
+          <button type="button" id="btnCancel" class="danger-btn" style="display: none">
+            Cancel
+          </button>
 
-      <!-- Output & Download -->
-      <section class="section action-section">
-        <div class="field-row">
-          <div class="field-group" style="flex: 2;">
-            <label for="filenameInput">Filename:</label>
-            <input type="text" id="filenameInput" placeholder="video_clip" />
+          <!-- Progress Tracking -->
+          <div id="progressContainer" style="display: none">
+            <progress id="downloadProgress" value="0" max="100"></progress>
+            <div id="progressStatus" class="meta-info">Preparing download...</div>
           </div>
-          <div class="field-group" style="flex: 1;">
-            <label for="formatSelect">Format:</label>
-            <select id="formatSelect">
-              <option value="mp4" selected>MP4</option>
-              <option value="ts">TS</option>
-            </select>
-          </div>
-        </div>
+        </section>
+      </div>
+    </main>
 
-        <button type="button" id="btnDownload" class="primary-btn">⬇️ Download MP4 Clip</button>
-        <button type="button" id="btnCancel" class="danger-btn" style="display: none;">Cancel</button>
-
-        <!-- Progress Tracking -->
-        <div id="progressContainer" style="display: none;">
-          <progress id="downloadProgress" value="0" max="100"></progress>
-          <div id="progressStatus" class="meta-info">Preparing download...</div>
-        </div>
-      </section>
-    </div>
-  </main>
-
-  <!-- Libraries -->
-  <script src="../lib/mux.min.js"></script>
-  <script src="../lib/hls.min.js"></script>
-  <script src="../lib/time.js"></script>
-  <script src="../lib/stego.js"></script>
-  <script src="../lib/stego-loader.js"></script>
-  <script src="../lib/transmuxer.js"></script>
-  <script src="../lib/parser.js"></script>
-  <script src="../lib/downloader.js"></script>
-  <script src="popup.js"></script>
-</body>
+    <!-- Libraries -->
+    <script src="../lib/mux.min.js"></script>
+    <script src="../lib/hls.min.js"></script>
+    <script src="../lib/time.js"></script>
+    <script src="../lib/stego.js"></script>
+    <script src="../lib/stego-loader.js"></script>
+    <script src="../lib/transmuxer.js"></script>
+    <script src="../lib/parser.js"></script>
+    <script src="../lib/downloader.js"></script>
+    <script src="popup.js"></script>
+  </body>
 </html>

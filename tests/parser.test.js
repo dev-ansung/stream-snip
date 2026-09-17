@@ -10,7 +10,10 @@ low/index.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720
 high/index.m3u8
 `;
-  const resolved = PlaylistParser.resolveSubPlaylist(masterM3u8, 'https://cdn.example.com/master.m3u8');
+  const resolved = PlaylistParser.resolveSubPlaylist(
+    masterM3u8,
+    'https://cdn.example.com/master.m3u8'
+  );
   assert.equal(resolved, 'https://cdn.example.com/high/index.m3u8');
 
   const variants = PlaylistParser.parseVariants(masterM3u8, 'https://cdn.example.com/master.m3u8');
@@ -93,4 +96,3 @@ test('PlaylistParser infers sibling variants from index-f3 URL', () => {
   assert.equal(variants[3].height, 360);
   assert.ok(variants[3].url.includes('index-f4-'));
 });
-

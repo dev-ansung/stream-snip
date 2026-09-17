@@ -3,7 +3,10 @@ body {
   width: 440px;
   margin: 0;
   padding: 12px;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
   font-size: 13px;
   color: #1e293b;
   background-color: #ffffff;
@@ -70,7 +73,8 @@ label {
   font-weight: 500;
 }
 
-select, input[type="text"] {
+select,
+input[type='text'] {
   width: 100%;
   box-sizing: border-box;
   padding: 6px 8px;
@@ -79,7 +83,8 @@ select, input[type="text"] {
   font-size: 13px;
 }
 
-select:focus, input[type="text"]:focus {
+select:focus,
+input[type='text']:focus {
   outline: none;
   border-color: #3b82f6;
 }
