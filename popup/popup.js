@@ -10,6 +10,7 @@ let selectedVariant = null;
 let currentTimeline = null;
 let activeAbortController = null;
 let currentTabId = null;
+let currentDefaultBaseName = '';
 
 // DOM Elements
 const videoEl = document.getElementById('previewPlayer');
@@ -236,13 +237,21 @@ function updateClipDuration() {
   }
 }
 
-startTimeInput.addEventListener('input', updateClipDuration);
-endTimeInput.addEventListener('input', updateClipDuration);
+startTimeInput.addEventListener('input', () => {
+  updateClipDuration();
+  updateFilenameTimestamps();
+});
+
+endTimeInput.addEventListener('input', () => {
+  updateClipDuration();
+  updateFilenameTimestamps();
+});
 
 btnSetStart.addEventListener('click', () => {
   if (videoEl && !isNaN(videoEl.currentTime)) {
     startTimeInput.value = StegoTime.formatDuration(videoEl.currentTime);
     updateClipDuration();
+    updateFilenameTimestamps();
   }
 });
 
@@ -250,6 +259,7 @@ btnSetEnd.addEventListener('click', () => {
   if (videoEl && !isNaN(videoEl.currentTime)) {
     endTimeInput.value = StegoTime.formatDuration(videoEl.currentTime);
     updateClipDuration();
+    updateFilenameTimestamps();
   }
 });
 
@@ -265,40 +275,59 @@ fullVideoToggle.addEventListener('change', () => {
     endTimeInput.value = StegoTime.formatDuration(currentTimeline.totalDuration);
   }
   updateClipDuration();
+  updateFilenameTimestamps();
 });
+
+if (filenameInput) {
+  filenameInput.addEventListener('blur', () => {
+    if (filenameInput.value) {
+      filenameInput.value = filenameInput.value.replace(/\.(mp4|ts)$/i, '');
+    }
+  });
+}
 
 if (formatSelect) {
   formatSelect.addEventListener('change', () => {
     const fmt = formatSelect.value;
     btnDownload.textContent = `⬇️ Download ${fmt.toUpperCase()} Clip`;
     if (filenameInput.value) {
-      filenameInput.value = filenameInput.value.replace(/\.(mp4|ts)$/i, '') + `.${fmt}`;
+      filenameInput.value = filenameInput.value.replace(/\.(mp4|ts)$/i, '');
     }
   });
 }
 
-// Generate sensible default output filename
-function updateDefaultFilename() {
-  const fmt = formatSelect ? formatSelect.value : 'mp4';
-  try {
-    const targetUrl = selectedVariant?.url || selectedStream?.url || '';
-    const parsedUrl = new URL(targetUrl);
-    const parts = parsedUrl.pathname.split('/').filter(Boolean);
-    const base = parts.pop() || 'video';
-    let cleanBase = base.replace(/\.m3u8$/i, '');
-    if (cleanBase === 'master' || cleanBase === 'index' || cleanBase.startsWith('index-')) {
-      const prev = parts.pop();
-      if (prev) cleanBase = `${prev}_${cleanBase}`;
-    }
+// Dynamically update the filename based on current timestamps without .mp4
+function updateFilenameTimestamps() {
+  const currentVal = filenameInput.value ? filenameInput.value.trim().replace(/\.(mp4|ts)$/i, '') : '';
+  const { base, sep } = StegoTime.extractBaseName(currentVal, currentDefaultBaseName || 'video_clip');
 
-    const height = mediaInfoState.height || selectedVariant?.height;
-    if (height) {
-      cleanBase += `_${height}p`;
+  const isFull = fullVideoToggle.checked;
+  const startStr = startTimeInput.value || '00:00';
+  const endStr = endTimeInput.value || '00:00';
+
+  filenameInput.value = StegoTime.buildClipFilename(base, startStr, endStr, isFull, sep);
+}
+
+// Generate sensible default output filename base (without extension)
+function updateDefaultFilename() {
+  if (!currentDefaultBaseName) {
+    try {
+      const targetUrl = selectedVariant?.url || selectedStream?.url || '';
+      const parsedUrl = new URL(targetUrl);
+      const parts = parsedUrl.pathname.split('/').filter(Boolean);
+      const base = parts.pop() || 'video';
+      let cleanBase = base.replace(/\.m3u8$/i, '');
+      if (cleanBase === 'master' || cleanBase === 'index' || cleanBase.startsWith('index-')) {
+        const prev = parts.pop();
+        if (prev) cleanBase = `${prev}_${cleanBase}`;
+      }
+      currentDefaultBaseName = cleanBase;
+    } catch {
+      currentDefaultBaseName = 'video_clip';
     }
-    filenameInput.value = `${cleanBase}_clip.${fmt}`;
-  } catch {
-    filenameInput.value = `video_clip.${fmt}`;
   }
+
+  updateFilenameTimestamps();
 }
 
 // Load media variant playlist (resolution / quality level)
@@ -552,10 +581,8 @@ btnDownload.addEventListener('click', async () => {
     );
 
     progressStatus.textContent = fmt === 'mp4' ? 'Transmuxing to MP4...' : 'Saving file...';
-    let filename = filenameInput.value.trim() || `video_clip.${fmt}`;
-    if (!filename.endsWith(`.${fmt}`)) {
-      filename = filename.replace(/\.(mp4|ts)$/i, '') + `.${fmt}`;
-    }
+    let base = filenameInput.value.trim().replace(/\.(mp4|ts)$/i, '') || 'video_clip';
+    let filename = `${base}.${fmt}`;
 
     await downloader.saveToFile(mergedBytes, filename, fmt);
     progressStatus.textContent = `✅ Saved ${filename} successfully!`;
@@ -622,12 +649,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!targetId) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     targetId = tab?.id || null;
+    if (tab?.title) {
+      const detected = StegoTime.detectBaseNameFromTitle(tab.title);
+      if (detected) {
+        currentDefaultBaseName = detected;
+      }
+    }
   }
 
   chrome.runtime.sendMessage({ type: 'GET_STREAMS', tabId: targetId }, response => {
     currentStreams = response?.streams || [];
     currentTabId = response?.tabId || targetId;
     streamCountBadge.textContent = `${currentStreams.length} stream${currentStreams.length === 1 ? '' : 's'}`;
+
+    if (response?.tabTitle && !currentDefaultBaseName) {
+      const detected = StegoTime.detectBaseNameFromTitle(response.tabTitle);
+      if (detected) {
+        currentDefaultBaseName = detected;
+      }
+    }
 
     streamSelect.innerHTML = '';
     if (currentStreams.length === 0) {

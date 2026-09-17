@@ -71,7 +71,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_STREAMS') {
     const tabId = request.tabId || lastActiveMediaTabId;
     const streams = tabStreams.get(tabId) || [];
-    sendResponse({ streams, tabId });
+    if (tabId) {
+      chrome.tabs.get(tabId, tab => {
+        const err = chrome.runtime.lastError;
+        sendResponse({
+          streams,
+          tabId,
+          tabTitle: (!err && tab?.title) ? tab.title : ''
+        });
+      });
+      return true;
+    }
+    sendResponse({ streams, tabId, tabTitle: '' });
     return true;
   }
 
