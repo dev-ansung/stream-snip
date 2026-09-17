@@ -302,46 +302,15 @@ function isGenericBase(name) {
   return n === 'video' || n === 'video_clip' || n.startsWith('master') || n.startsWith('index');
 }
 
-// Proactively inspect the target tab for page headers (h1, h2, title, URL)
-async function resolvePageHeaderAndCode(targetTabId) {
+// Resolve base name directly from tab document.title
+async function resolveDocumentTitle(targetTabId) {
   if (!targetTabId) return null;
-
-  // 1. Try querying chrome.scripting on target tab to get actual DOM page header (h1, h2, document.title)
-  try {
-    if (chrome.scripting && chrome.scripting.executeScript) {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: targetTabId },
-        func: () => {
-          const h1 = document.querySelector('h1')?.innerText || '';
-          const h2 = document.querySelector('h2')?.innerText || '';
-          const entryTitle = document.querySelector('.entry-title, .post-title, .video-title, #title')?.innerText || '';
-          const docTitle = document.title || '';
-          return `${h1} ${entryTitle} ${h2} ${docTitle}`.trim();
-        }
-      });
-      const headerText = results?.[0]?.result;
-      if (headerText) {
-        const detected = StegoTime.detectBaseNameFromTitle(headerText);
-        if (detected) return detected;
-      }
-    }
-  } catch (e) {
-    // Content script might be blocked or restricted, fallback to tabs API
-  }
-
-  // 2. Try chrome.tabs.get to inspect tab.title and tab.url
   try {
     const tab = await chrome.tabs.get(targetTabId);
     if (tab?.title) {
-      const detected = StegoTime.detectBaseNameFromTitle(tab.title);
-      if (detected) return detected;
-    }
-    if (tab?.url) {
-      const detected = StegoTime.detectBaseNameFromTitle(decodeURIComponent(tab.url));
-      if (detected) return detected;
+      return StegoTime.detectBaseNameFromTitle(tab.title);
     }
   } catch (e) {}
-
   return null;
 }
 
@@ -711,9 +680,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Proactively inspect the target tab DOM (h1, h2, document.title) for video code (e.g. ABF-361)
-  if (targetId) {
-    resolvePageHeaderAndCode(targetId).then(code => {
+  // Resolve base name from tab document.title
+  if (targetId && !currentDefaultBaseName) {
+    resolveDocumentTitle(targetId).then(code => {
       if (code) {
         currentDefaultBaseName = code;
         updateFilenameTimestamps();
@@ -731,12 +700,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const detected = StegoTime.detectBaseNameFromTitle(response.tabTitle);
         if (detected) currentDefaultBaseName = detected;
       }
-      if ((!currentDefaultBaseName || isGenericBase(currentDefaultBaseName)) && response?.tabUrl) {
-        const detected = StegoTime.detectBaseNameFromTitle(decodeURIComponent(response.tabUrl));
-        if (detected) currentDefaultBaseName = detected;
-      }
       if ((!currentDefaultBaseName || isGenericBase(currentDefaultBaseName)) && currentTabId) {
-        const code = await resolvePageHeaderAndCode(currentTabId);
+        const code = await resolveDocumentTitle(currentTabId);
         if (code) currentDefaultBaseName = code;
       }
       if (currentDefaultBaseName && !isGenericBase(currentDefaultBaseName)) {
