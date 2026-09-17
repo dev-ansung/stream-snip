@@ -73,7 +73,9 @@ test('buildClipFilename formats filename dynamically without mp4 extension', () 
 
 test('detectBaseNameFromTitle extracts video code or cleans title', () => {
   assert.equal(
-    detectBaseNameFromTitle('[无码破解]ABF-361 人文系女学生沉迷于中年男子的黏腻性爱。黏腻、高湿度、无声的性爱。'),
+    detectBaseNameFromTitle(
+      '[无码破解]ABF-361 人文系女学生沉迷于中年男子的黏腻性爱。黏腻、高湿度、无声的性爱。'
+    ),
     'ABF-361'
   );
   assert.equal(detectBaseNameFromTitle('[Sup] [无码破解]ABF-361'), 'ABF-361');
@@ -83,10 +85,27 @@ test('detectBaseNameFromTitle extracts video code or cleans title', () => {
 });
 
 test('extractBaseName upgrades generic names to detected code', () => {
-  assert.deepEqual(extractBaseName('video_clip_47_00-54_00', 'ABF-361'), { base: 'ABF-361', sep: '_' });
+  assert.deepEqual(extractBaseName('video_clip_47_00-54_00', 'ABF-361'), {
+    base: 'ABF-361',
+    sep: '_'
+  });
   assert.deepEqual(extractBaseName('master_1080p_clip', 'ABF-361'), { base: 'ABF-361', sep: '_' });
-  assert.deepEqual(extractBaseName('MyCustomClip_47_00-54_00', 'ABF-361'), { base: 'MyCustomClip', sep: '_' });
+  assert.deepEqual(extractBaseName('MyCustomClip_47_00-54_00', 'ABF-361'), {
+    base: 'MyCustomClip',
+    sep: '_'
+  });
 });
 
+test('extractBaseName handles multiple or chained timestamp suffixes cleanly', () => {
+  const uglyString =
+    'PKPD-117_1-02_00_55_1_-02_00_55_1_0-02_00_55_1_03_-02_00_55_1_03_0-02_00_55_1_03_00-1_1_03_00-1__1_03_00-1_1_1_03_00-1_18__1_03_00-1_18_0_1_03_00-1_18_00';
+  assert.deepEqual(extractBaseName(uglyString, 'PKPD-117'), { base: 'PKPD-117', sep: '_' });
+  assert.deepEqual(extractBaseName(uglyString, 'video_clip'), { base: 'PKPD-117', sep: '_' });
+});
 
-
+test('buildClipFilename normalizes hours into HH_MM_SS timestamps', () => {
+  assert.equal(
+    buildClipFilename('PKPD-117', '1:03:00', '1:18:00', false, '_'),
+    'PKPD-117_01_03_00-01_18_00'
+  );
+});
