@@ -74,6 +74,7 @@ test('manifest permissions contain expected MV3 permissions', () => {
   assert.ok(Array.isArray(manifest.permissions), 'permissions must be an array');
   const expectedPerms = [
     'webRequest',
+    'declarativeNetRequestWithHostAccess',
     'storage',
     'downloads',
     'activeTab',
