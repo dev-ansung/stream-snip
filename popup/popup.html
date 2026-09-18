@@ -164,6 +164,71 @@
       </div>
     </main>
 
+    <!-- Dedicated Focused Download Screen (Active in mode=download) -->
+    <div id="downloadManagerCard" class="download-manager-card card" style="display: none">
+      <div class="download-card-header">
+        <div class="download-card-title">
+          <span class="download-icon">📥</span>
+          <div>
+            <h2>StegoClip Downloader</h2>
+            <div id="dlTaskSubtitle" class="meta-info">Preparing segment download...</div>
+          </div>
+        </div>
+        <span id="dlStatusBadge" class="badge">Downloading</span>
+      </div>
+
+      <div class="download-card-details">
+        <div class="dl-detail-row">
+          <span class="dl-detail-label">File:</span>
+          <span id="dlFilename" class="dl-detail-val">video_clip.mp4</span>
+        </div>
+        <div class="dl-detail-row">
+          <span class="dl-detail-label">Quality:</span>
+          <span id="dlQuality" class="dl-detail-val">--</span>
+        </div>
+        <div class="dl-detail-row">
+          <span class="dl-detail-label">Clip Range:</span>
+          <span id="dlClipRange" class="dl-detail-val">--</span>
+        </div>
+      </div>
+
+      <div class="download-card-progress">
+        <div class="dl-progress-header">
+          <span id="dlProgressPercentage" class="dl-progress-percentage">0%</span>
+          <span id="dlProgressSpeed" class="dl-progress-speed">0.0 MB/s</span>
+        </div>
+        <progress id="dlProgressBar" value="0" max="100"></progress>
+        <div class="dl-progress-footer">
+          <span id="dlProgressSegments" class="meta-info">0 / 0 segments</span>
+          <span id="dlProgressEta" class="meta-info">Estimating time...</span>
+        </div>
+      </div>
+
+      <div id="dlSuccessBanner" class="dl-success-banner" style="display: none">
+        <span>✅ Saved file to your Downloads folder!</span>
+      </div>
+
+      <div class="download-card-actions">
+        <label class="dl-auto-close-label">
+          <input type="checkbox" id="dlAutoCloseToggle" checked />
+          Close tab automatically when finished
+        </label>
+        <div class="dl-btn-group">
+          <button type="button" id="btnCancelDownloadTab" class="danger-btn">
+            Cancel Download
+          </button>
+          <button
+            type="button"
+            id="btnCloseDownloadTab"
+            class="secondary-btn"
+            style="display: none"
+          >
+            Close Tab
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast Notifications Container -->
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 

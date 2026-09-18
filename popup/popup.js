@@ -48,14 +48,20 @@ const progressStatus = document.getElementById('progressStatus');
 const btnOpenTab = document.getElementById('btnOpenTab');
 const btnClearStreams = document.getElementById('btnClearStreams');
 
-// Check if running in full-page mode
+// Check display and execution mode
 const urlParams = new URLSearchParams(window.location.search);
-const isFullPageMode = urlParams.get('mode') === 'full' || window.innerWidth > 500;
+const isDownloadMode = urlParams.get('mode') === 'download';
+const isFullPageMode =
+  !isDownloadMode && (urlParams.get('mode') === 'full' || window.innerWidth > 500);
 const tabIdFromUrl = urlParams.get('tabId') ? parseInt(urlParams.get('tabId'), 10) : null;
 const shouldAutoDownload =
   urlParams.get('download') === '1' || urlParams.get('autoDownload') === 'true';
 
-if (isFullPageMode) {
+if (isDownloadMode) {
+  document.body.classList.add('download-mode');
+  if (btnOpenTab) btnOpenTab.style.display = 'none';
+  if (btnClearStreams) btnClearStreams.style.display = 'none';
+} else if (isFullPageMode) {
   document.body.classList.add('full-page');
   if (btnOpenTab) btnOpenTab.style.display = 'none';
 }
@@ -571,13 +577,14 @@ qualitySelect.addEventListener('change', () => {
 });
 
 btnDownload.addEventListener('click', async () => {
-  if (!isFullPageMode) {
+  if (!isFullPageMode && !isDownloadMode) {
     savePopupState();
     const tabParam = currentTabId ? `&tabId=${currentTabId}` : '';
     chrome.tabs.create({
-      url: chrome.runtime.getURL(`popup/popup.html?mode=full${tabParam}&download=1`)
+      url: chrome.runtime.getURL(`popup/popup.html?mode=download${tabParam}&download=1`),
+      active: true
     });
-    window.close();
+    UiFeedback.info('Download task opened in new tab', 2500);
     return;
   }
   await executeDownload();
@@ -840,8 +847,230 @@ async function requestStreams(targetId) {
   });
 }
 
+async function executeDownloadTaskMode(targetId) {
+  const downloadCard = document.getElementById('downloadManagerCard');
+  const dlTaskSubtitle = document.getElementById('dlTaskSubtitle');
+  const dlStatusBadge = document.getElementById('dlStatusBadge');
+  const dlFilename = document.getElementById('dlFilename');
+  const dlQuality = document.getElementById('dlQuality');
+  const dlClipRange = document.getElementById('dlClipRange');
+  const dlProgressPercentage = document.getElementById('dlProgressPercentage');
+  const dlProgressSpeed = document.getElementById('dlProgressSpeed');
+  const dlProgressBar = document.getElementById('dlProgressBar');
+  const dlProgressSegments = document.getElementById('dlProgressSegments');
+  const dlProgressEta = document.getElementById('dlProgressEta');
+  const dlSuccessBanner = document.getElementById('dlSuccessBanner');
+  const dlAutoCloseToggle = document.getElementById('dlAutoCloseToggle');
+  const btnCancelDownloadTab = document.getElementById('btnCancelDownloadTab');
+  const btnCloseDownloadTab = document.getElementById('btnCloseDownloadTab');
+
+  if (downloadCard) downloadCard.style.display = 'flex';
+
+  activeAbortController = new AbortController();
+
+  if (btnCancelDownloadTab) {
+    btnCancelDownloadTab.addEventListener('click', () => {
+      if (activeAbortController) {
+        activeAbortController.abort();
+      }
+    });
+  }
+
+  if (btnCloseDownloadTab) {
+    btnCloseDownloadTab.addEventListener('click', () => {
+      window.close();
+    });
+  }
+
+  if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Loading stream configuration...';
+
+  // Load state saved by side panel
+  let savedState = targetId ? await StateManager.loadState(targetId) : null;
+
+  if (!savedState || !savedState.streamUrl) {
+    const getStreamsType =
+      typeof StegoConstants !== 'undefined' ? StegoConstants.MSG_TYPES.GET_STREAMS : 'GET_STREAMS';
+    const streamsResp = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, resolve);
+    });
+    const fallbackTabId = streamsResp?.tabId;
+    if (fallbackTabId && fallbackTabId !== targetId) {
+      savedState = await StateManager.loadState(fallbackTabId);
+    }
+  }
+
+  if (!savedState || !savedState.streamUrl) {
+    if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Failed: Stream configuration not found.';
+    if (dlStatusBadge) {
+      dlStatusBadge.textContent = 'Error';
+      dlStatusBadge.style.backgroundColor = '#fecaca';
+      dlStatusBadge.style.color = '#991b1b';
+    }
+    return;
+  }
+
+  const getStreamsType =
+    typeof StegoConstants !== 'undefined' ? StegoConstants.MSG_TYPES.GET_STREAMS : 'GET_STREAMS';
+  const streamsResp = await new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, resolve);
+  });
+
+  const stream = (streamsResp?.streams || []).find((s) => s.url === savedState.streamUrl) || {
+    url: savedState.streamUrl,
+    headers: {}
+  };
+
+  const applyDnrType =
+    typeof StegoConstants !== 'undefined'
+      ? StegoConstants.MSG_TYPES.APPLY_DNR_RULES
+      : 'APPLY_DNR_RULES';
+  chrome.runtime.sendMessage({
+    type: applyDnrType,
+    headers: stream.headers
+  });
+
+  const variantUrl = savedState.variantUrl || savedState.streamUrl;
+  const fmt = savedState.format || 'mp4';
+  const rawBase = (savedState.filename || 'video_clip').replace(/\.(mp4|ts)$/i, '');
+  const finalFilename = `${rawBase}.${fmt}`;
+
+  document.title = `📥 Downloading ${finalFilename}`;
+  if (dlFilename) dlFilename.textContent = finalFilename;
+
+  if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Parsing stream playlist...';
+
+  let mediaPlaylistUrl = variantUrl;
+  try {
+    const resp = await fetch(variantUrl);
+    const text = await resp.text();
+
+    if (text.includes('#EXT-X-STREAM-INF')) {
+      const variants = StegoParser.PlaylistParser.parseVariants(text, variantUrl);
+      if (variants.length > 0) {
+        mediaPlaylistUrl = variants[0].url;
+        if (dlQuality) dlQuality.textContent = variants[0].label;
+      }
+    } else {
+      if (dlQuality) dlQuality.textContent = 'Direct Stream';
+    }
+  } catch (err) {
+    console.warn('[Downloader] Failed parsing playlist variants:', err);
+  }
+
+  const mediaResp = await fetch(mediaPlaylistUrl);
+  const mediaText = await mediaResp.text();
+  const timeline = StegoParser.PlaylistParser.parseMediaPlaylist(mediaText, mediaPlaylistUrl);
+
+  let startSec = 0;
+  let endSec = timeline.totalDuration;
+
+  if (!savedState.isFull && savedState.startTime && savedState.endTime) {
+    try {
+      startSec = StegoTime.parseTimestamp(savedState.startTime);
+      endSec = StegoTime.parseTimestamp(savedState.endTime);
+    } catch {}
+  }
+
+  const overlapping = timeline.getOverlappingSegments(startSec, endSec);
+  if (overlapping.length === 0) {
+    if (dlTaskSubtitle)
+      dlTaskSubtitle.textContent = 'Error: No video segments found in selected range.';
+    return;
+  }
+
+  const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
+  if (dlClipRange) {
+    dlClipRange.textContent = `${StegoTime.formatDuration(startSec)} - ${StegoTime.formatDuration(
+      endSec
+    )} (${StegoTime.formatDuration(clipDuration)})`;
+  }
+
+  if (dlTaskSubtitle) dlTaskSubtitle.textContent = `Downloading ${overlapping.length} segments...`;
+
+  const concurrency =
+    typeof StegoConstants !== 'undefined' ? StegoConstants.CONFIG.DEFAULT_CONCURRENCY : 6;
+  const downloader = new StegoDownloader.SegmentDownloader({ concurrency });
+
+  try {
+    const mergedBytes = await downloader.downloadSegments(
+      overlapping,
+      stream.headers,
+      (progress) => {
+        if (dlProgressBar) dlProgressBar.value = progress.percent;
+        if (dlProgressPercentage) dlProgressPercentage.textContent = `${progress.percent}%`;
+        const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
+        const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
+        if (dlProgressSpeed) dlProgressSpeed.textContent = `${speedMb} MB/s (${mb} MB)`;
+        if (dlProgressSegments) {
+          dlProgressSegments.textContent = `${progress.completed} / ${progress.total} segments`;
+        }
+        if (dlProgressEta && typeof progress.etaSec === 'number') {
+          dlProgressEta.textContent = `ETA: ~${StegoTime.formatDuration(progress.etaSec)}`;
+        }
+      },
+      activeAbortController.signal
+    );
+
+    if (dlTaskSubtitle) {
+      dlTaskSubtitle.textContent = fmt === 'mp4' ? 'Transmuxing to MP4...' : 'Saving file...';
+    }
+    if (dlStatusBadge) dlStatusBadge.textContent = 'Finalizing';
+
+    await downloader.saveToFile(mergedBytes, finalFilename, fmt, clipDuration);
+
+    document.title = `✅ Finished ${finalFilename}`;
+    if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Download completed successfully!';
+    if (dlStatusBadge) {
+      dlStatusBadge.textContent = 'Complete';
+      dlStatusBadge.style.backgroundColor = '#dcfce7';
+      dlStatusBadge.style.color = '#15803d';
+    }
+    if (dlSuccessBanner) dlSuccessBanner.style.display = 'block';
+    if (btnCancelDownloadTab) btnCancelDownloadTab.style.display = 'none';
+    if (btnCloseDownloadTab) btnCloseDownloadTab.style.display = 'block';
+
+    if (dlAutoCloseToggle && dlAutoCloseToggle.checked) {
+      setTimeout(() => {
+        window.close();
+      }, 1500);
+    }
+  } catch (err) {
+    if (activeAbortController?.signal.aborted) {
+      document.title = 'Cancelled Download';
+      if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Download was cancelled.';
+      if (dlStatusBadge) {
+        dlStatusBadge.textContent = 'Cancelled';
+        dlStatusBadge.style.backgroundColor = '#f1f5f9';
+        dlStatusBadge.style.color = '#64748b';
+      }
+    } else {
+      document.title = 'Download Failed';
+      if (dlTaskSubtitle) dlTaskSubtitle.textContent = `Error: ${err.message}`;
+      if (dlStatusBadge) {
+        dlStatusBadge.textContent = 'Failed';
+        dlStatusBadge.style.backgroundColor = '#fecaca';
+        dlStatusBadge.style.color = '#991b1b';
+      }
+    }
+    if (btnCancelDownloadTab) btnCancelDownloadTab.style.display = 'none';
+    if (btnCloseDownloadTab) btnCloseDownloadTab.style.display = 'block';
+  } finally {
+    activeAbortController = null;
+  }
+}
+
 // Bootstrap Popup
 document.addEventListener('DOMContentLoaded', async () => {
+  if (isDownloadMode) {
+    let targetId = tabIdFromUrl;
+    if (!targetId && typeof chrome !== 'undefined' && chrome.tabs?.query) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      targetId = tab?.id || null;
+    }
+    await executeDownloadTaskMode(targetId);
+    return;
+  }
+
   PlayerController.init(videoEl, {
     onMediaInfoChanged: (info) => {
       renderMediaDetails(info);
@@ -885,22 +1114,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.tabs.onActivated.addListener(async (activeInfo) => {
       // Avoid interrupting active downloads
       if (activeAbortController) return;
-      if (syncTabSeekToggle?.checked && currentTabId && currentTabId !== activeInfo.tabId) {
-        sendSyncStateToPage(false, currentTabId);
-      }
-      currentDefaultBaseName = '';
-      userCustomBaseName = null;
+
       try {
         const tab = await chrome.tabs.get(activeInfo.tabId);
+        // Ignore extension pages (e.g. StegoClip download tab) and system URLs
+        if (
+          !tab?.url ||
+          tab.url.startsWith('chrome-extension://') ||
+          tab.url.startsWith('chrome://') ||
+          tab.url.startsWith('devtools://') ||
+          tab.url.startsWith('edge://') ||
+          tab.url.startsWith('about:')
+        ) {
+          console.info('[StegoClip:Popup] Ignoring non-content tab activation:', tab?.url);
+          return;
+        }
+
+        if (syncTabSeekToggle?.checked && currentTabId && currentTabId !== activeInfo.tabId) {
+          sendSyncStateToPage(false, currentTabId);
+        }
+        currentDefaultBaseName = '';
+        userCustomBaseName = null;
         if (tab?.title) {
           const detected = StegoTime.cleanTitleForFilename(tab.title);
           if (detected) currentDefaultBaseName = detected;
         }
+        requestStreams(activeInfo.tabId);
+        if (syncTabSeekToggle?.checked) {
+          sendSyncStateToPage(true, activeInfo.tabId);
+        }
       } catch {}
-      requestStreams(activeInfo.tabId);
-      if (syncTabSeekToggle?.checked) {
-        sendSyncStateToPage(true, activeInfo.tabId);
-      }
     });
   }
 

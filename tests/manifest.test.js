@@ -99,6 +99,7 @@ test('popup.html contains clear streams and full page studio buttons', () => {
   assert.ok(html.includes('id="btnOpenTab"'), 'Must have btnOpenTab');
   assert.ok(html.includes('id="toastContainer"'), 'Must have toastContainer');
   assert.ok(html.includes('id="syncTabSeekToggle"'), 'Must have syncTabSeekToggle');
+  assert.ok(html.includes('id="downloadManagerCard"'), 'Must have downloadManagerCard');
   assert.ok(html.includes('ui-feedback.js'), 'Must include ui-feedback.js');
   assert.ok(html.includes('player-controller.js'), 'Must include player-controller.js');
   assert.ok(html.includes('state-manager.js'), 'Must include state-manager.js');
