@@ -784,10 +784,7 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
       }
     }
 
-    const didSeek = PlayerController.seekTo(message.currentTime);
-    if (didSeek) {
-      UiFeedback.info(`Synced to tab (${StegoTime.formatDuration(message.currentTime)})`, 1200);
-    }
+    PlayerController.seekTo(message.currentTime);
   }
 });
 
