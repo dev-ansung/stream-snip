@@ -69,14 +69,7 @@ test('manifest permissions contain expected MV3 permissions', () => {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
   assert.ok(Array.isArray(manifest.permissions), 'permissions must be an array');
-  const expectedPerms = [
-    'webRequest',
-    'storage',
-    'downloads',
-    'activeTab',
-    'webNavigation',
-    'offscreen'
-  ];
+  const expectedPerms = ['webRequest', 'storage', 'downloads', 'activeTab', 'webNavigation'];
   for (const perm of expectedPerms) {
     assert.ok(manifest.permissions.includes(perm), `Permissions must include ${perm}`);
   }
@@ -86,13 +79,6 @@ test('manifest permissions contain expected MV3 permissions', () => {
     manifest.host_permissions.includes('<all_urls>'),
     'host_permissions must include <all_urls>'
   );
-});
-
-test('offscreen document files exist', () => {
-  const offscreenHtml = path.join(rootDir, 'offscreen', 'offscreen.html');
-  const offscreenJs = path.join(rootDir, 'offscreen', 'offscreen.js');
-  assert.ok(fs.existsSync(offscreenHtml), 'offscreen.html must exist');
-  assert.ok(fs.existsSync(offscreenJs), 'offscreen.js must exist');
 });
 
 test('popup.html contains clear streams and full page studio buttons', () => {

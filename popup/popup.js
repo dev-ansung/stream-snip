@@ -8,6 +8,7 @@ let selectedStream = null;
 let currentVariants = [];
 let selectedVariant = null;
 let currentTimeline = null;
+let activeAbortController = null;
 let currentTabId = null;
 let currentDefaultBaseName = '';
 let userCustomBaseName = null;
@@ -211,6 +212,8 @@ videoEl.addEventListener('playing', onVideoDimensionsChanged);
 const urlParams = new URLSearchParams(window.location.search);
 const isFullPageMode = urlParams.get('mode') === 'full' || window.innerWidth > 500;
 const tabIdFromUrl = urlParams.get('tabId') ? parseInt(urlParams.get('tabId'), 10) : null;
+const shouldAutoDownload =
+  urlParams.get('download') === '1' || urlParams.get('autoDownload') === 'true';
 
 if (isFullPageMode) {
   document.body.classList.add('full-page');
@@ -655,6 +658,20 @@ qualitySelect.addEventListener('change', () => {
 
 // Download Button Handler
 btnDownload.addEventListener('click', async () => {
+  if (!isFullPageMode) {
+    savePopupState();
+    const tabParam = currentTabId ? `&tabId=${currentTabId}` : '';
+    chrome.tabs.create({
+      url: chrome.runtime.getURL(`popup/popup.html?mode=full${tabParam}&download=1`)
+    });
+    window.close();
+    return;
+  }
+
+  await executeDownload();
+});
+
+async function executeDownload() {
   if (!selectedVariant || !currentTimeline) {
     alert('Please select a valid stream and quality first.');
     return;
@@ -691,58 +708,45 @@ btnDownload.addEventListener('click', async () => {
   downloadProgress.value = 0;
   progressStatus.textContent = `Downloading 0/${overlapping.length} segments (0%)...`;
 
+  activeAbortController = new AbortController();
+  const downloader = new StegoDownloader.SegmentDownloader({ concurrency: 6 });
   const fmt = formatSelect ? formatSelect.value : 'mp4';
-  const base = filenameInput.value.trim().replace(/\.(mp4|ts)$/i, '') || 'video_clip';
-  const filename = `${base}.${fmt}`;
 
-  chrome.runtime.sendMessage({
-    type: 'START_DOWNLOAD',
-    tabId: currentTabId,
-    segments: overlapping,
-    headers: selectedStream.headers,
-    filename,
-    format: fmt
-  });
-});
+  try {
+    const mergedBytes = await downloader.downloadSegments(
+      overlapping,
+      selectedStream.headers,
+      (progress) => {
+        downloadProgress.value = progress.percent;
+        const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
+        const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
+        progressStatus.textContent = `Downloaded ${progress.completed}/${progress.total} segments (${progress.percent}%) • ${mb} MB (${speedMb} MB/s)`;
+      },
+      activeAbortController.signal
+    );
+
+    progressStatus.textContent = fmt === 'mp4' ? 'Transmuxing to MP4...' : 'Saving file...';
+    const base = filenameInput.value.trim().replace(/\.(mp4|ts)$/i, '') || 'video_clip';
+    const filename = `${base}.${fmt}`;
+
+    await downloader.saveToFile(mergedBytes, filename, fmt);
+    progressStatus.textContent = `✅ Saved ${filename} successfully!`;
+  } catch (err) {
+    if (activeAbortController?.signal.aborted) {
+      progressStatus.textContent = 'Download cancelled.';
+    } else {
+      progressStatus.textContent = `❌ Error: ${err.message}`;
+    }
+  } finally {
+    btnDownload.disabled = false;
+    btnCancel.style.display = 'none';
+    activeAbortController = null;
+  }
+}
 
 btnCancel.addEventListener('click', () => {
-  chrome.runtime.sendMessage({
-    type: 'CANCEL_DOWNLOAD',
-    tabId: currentTabId
-  });
-  btnDownload.disabled = false;
-  btnCancel.style.display = 'none';
-  progressStatus.textContent = 'Download cancelled.';
-});
-
-// Listen for download progress, completion, or error from offscreen document
-chrome.runtime.onMessage.addListener((msg) => {
-  if (!msg || msg.tabId !== currentTabId) return;
-
-  if (msg.type === 'DOWNLOAD_PROGRESS') {
-    progressContainer.style.display = 'block';
-    btnDownload.disabled = true;
-    btnCancel.style.display = 'block';
-    downloadProgress.value = msg.progress.percent || 0;
-    const mb = ((msg.progress.totalBytes || 0) / (1024 * 1024)).toFixed(1);
-    const speedMb = ((msg.progress.speedBytesPerSec || 0) / (1024 * 1024)).toFixed(1);
-    progressStatus.textContent = `Downloaded ${msg.progress.completed || 0}/${msg.progress.total || 0} segments (${msg.progress.percent || 0}%) • ${mb} MB (${speedMb} MB/s)`;
-  } else if (msg.type === 'DOWNLOAD_TRANSMUXING') {
-    progressStatus.textContent = msg.format === 'mp4' ? 'Transmuxing to MP4...' : 'Saving file...';
-  } else if (msg.type === 'DOWNLOAD_COMPLETED') {
-    btnDownload.disabled = false;
-    btnCancel.style.display = 'none';
-    progressContainer.style.display = 'block';
-    downloadProgress.value = 100;
-    progressStatus.textContent = `✅ Saved ${msg.filename} successfully!`;
-  } else if (msg.type === 'DOWNLOAD_CANCELLED') {
-    btnDownload.disabled = false;
-    btnCancel.style.display = 'none';
-    progressStatus.textContent = 'Download cancelled.';
-  } else if (msg.type === 'DOWNLOAD_ERROR') {
-    btnDownload.disabled = false;
-    btnCancel.style.display = 'none';
-    progressStatus.textContent = `❌ Error: ${msg.error}`;
+  if (activeAbortController) {
+    activeAbortController.abort();
   }
 });
 
@@ -831,7 +835,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     streamSelect.innerHTML = '';
-    await restoreDownloadStatus(currentTabId);
 
     if (currentStreams.length === 0) {
       const opt = document.createElement('option');
@@ -908,29 +911,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       updateClipDuration();
     }
+
+    if (shouldAutoDownload) {
+      await executeDownload();
+    }
   });
 });
-
-async function restoreDownloadStatus(targetId) {
-  if (!targetId) return;
-  const storageKey = `stego_download_${targetId}`;
-  const data = await chrome.storage.local.get([storageKey]);
-  const dl = data[storageKey];
-  if (!dl) return;
-
-  if (dl.status === 'downloading') {
-    progressContainer.style.display = 'block';
-    btnDownload.disabled = true;
-    btnCancel.style.display = 'block';
-    downloadProgress.value = dl.percent || 0;
-    const mb = ((dl.totalBytes || 0) / (1024 * 1024)).toFixed(1);
-    const speedMb = ((dl.speedBytesPerSec || 0) / (1024 * 1024)).toFixed(1);
-    progressStatus.textContent = `Downloaded ${dl.completed || 0}/${dl.total || 0} segments (${dl.percent || 0}%) • ${mb} MB (${speedMb} MB/s)`;
-  } else if (dl.status === 'completed') {
-    progressContainer.style.display = 'block';
-    btnDownload.disabled = false;
-    btnCancel.style.display = 'none';
-    downloadProgress.value = 100;
-    progressStatus.textContent = `✅ Saved ${dl.filename} successfully!`;
-  }
-}

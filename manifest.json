@@ -10,8 +10,7 @@
     "downloads",
     "activeTab",
     "tabs",
-    "webNavigation",
-    "offscreen"
+    "webNavigation"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {

@@ -88,7 +88,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
       chrome.action.setBadgeText({ tabId, text: '' });
     } catch {}
     try {
-      await chrome.storage.local.remove([`stego_popup_state_${tabId}`, `stego_download_${tabId}`]);
+      await chrome.storage.local.remove([`stego_popup_state_${tabId}`]);
     } catch {}
     await persistState();
   }
@@ -99,7 +99,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   tabStreams.delete(tabId);
   tabMetadata.delete(tabId);
   try {
-    await chrome.storage.local.remove([`stego_popup_state_${tabId}`, `stego_download_${tabId}`]);
+    await chrome.storage.local.remove([`stego_popup_state_${tabId}`]);
   } catch {}
   await persistState();
 });
@@ -148,25 +148,6 @@ chrome.webRequest.onSendHeaders.addListener(
   ['requestHeaders', chrome.webRequest.OnBeforeSendHeadersOptions.EXTRA_HEADERS].filter(Boolean)
 );
 
-// Helper to create or verify offscreen document for background downloading
-async function ensureOffscreenDocument() {
-  if (chrome.offscreen?.hasDocument) {
-    const has = await chrome.offscreen.hasDocument();
-    if (has) return;
-  }
-  try {
-    await chrome.offscreen.createDocument({
-      url: 'offscreen/offscreen.html',
-      reasons: ['BLOBS'],
-      justification: 'Perform background segment downloads and transmuxing'
-    });
-  } catch (err) {
-    if (!err.message?.includes('Only a single offscreen document may be created')) {
-      console.error('Failed to create offscreen document:', err);
-    }
-  }
-}
-
 // Message listener for popup communication
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_STREAMS') {
@@ -199,44 +180,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === 'CLEAR_STREAMS') {
-    const tabId = request.tabId;
-    if (tabId) {
-      tabStreams.delete(tabId);
-      tabMetadata.delete(tabId);
-      try {
-        chrome.action.setBadgeText({ tabId, text: '' });
-      } catch {}
-      try {
-        chrome.storage.local.remove([`stego_popup_state_${tabId}`, `stego_download_${tabId}`]);
-      } catch {}
-    } else {
-      tabStreams.clear();
-      tabMetadata.clear();
-    }
-    persistState().then(() => {
-      sendResponse({ success: true });
-    });
-    return true;
-  }
-
-  if (request.type === 'START_DOWNLOAD') {
     (async () => {
-      await ensureOffscreenDocument();
-      chrome.runtime.sendMessage({
-        ...request,
-        type: 'OFFSCREEN_START_DOWNLOAD'
-      });
+      const tabId = request.tabId;
+      if (tabId) {
+        tabStreams.delete(tabId);
+        tabMetadata.delete(tabId);
+        try {
+          chrome.action.setBadgeText({ tabId, text: '' });
+        } catch {}
+        try {
+          await chrome.storage.local.remove([`stego_popup_state_${tabId}`]);
+        } catch {}
+      } else {
+        tabStreams.clear();
+        tabMetadata.clear();
+      }
+      await persistState();
       sendResponse({ success: true });
     })();
-    return true;
-  }
-
-  if (request.type === 'CANCEL_DOWNLOAD') {
-    chrome.runtime.sendMessage({
-      ...request,
-      type: 'OFFSCREEN_CANCEL_DOWNLOAD'
-    });
-    sendResponse({ success: true });
     return true;
   }
 
