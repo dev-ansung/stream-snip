@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { transmuxTsToMp4, fixFileDuration } = require('../lib/transmuxer.js');
+const { transmuxTsToMp4, unfragmentFmp4, fixFileDuration } = require('../lib/transmuxer.js');
 
 test('transmuxTsToMp4 handles empty or invalid bytes gracefully', () => {
   const empty = new Uint8Array(0);
@@ -17,6 +17,14 @@ test('transmuxTsToMp4 transmuxes valid TS packets into MP4 with ftyp header', ()
 
   const out = transmuxTsToMp4(dummyTs);
   assert.ok(out instanceof Uint8Array);
+});
+
+test('unfragmentFmp4 handles non-fragmented or empty bytes gracefully', () => {
+  const empty = new Uint8Array(0);
+  assert.equal(unfragmentFmp4(empty).byteLength, 0);
+
+  const small = new Uint8Array([0, 0, 0, 8, 0x66, 0x74, 0x79, 0x70]);
+  assert.equal(unfragmentFmp4(small), small);
 });
 
 test('fixFileDuration patches mvhd, tkhd, and mdhd boxes correctly', () => {
