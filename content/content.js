@@ -192,6 +192,76 @@
     trackedVideos.clear();
   }
 
+  let titleObserver = null;
+  let lastReportedTitle = '';
+
+  function getCleanTitle(raw) {
+    if (typeof StegoTime !== 'undefined' && StegoTime.cleanTitleForFilename) {
+      return StegoTime.cleanTitleForFilename(raw);
+    }
+    let cleaned = (raw || '')
+      .replace(/[\\/*?:"<>|]/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .trim()
+      .replace(/^-+|-+$/g, '');
+    if (cleaned.length > 80) cleaned = cleaned.slice(0, 80).replace(/-+$/g, '');
+    return cleaned;
+  }
+
+  function reportTitleChange() {
+    if (typeof document === 'undefined') return;
+    const currentTitle = document.title || '';
+    if (!currentTitle || currentTitle === lastReportedTitle) return;
+    lastReportedTitle = currentTitle;
+    const clean = getCleanTitle(currentTitle);
+    console.info(`[StegoClip:Content] Page title changed: "${currentTitle}" (clean: "${clean}")`);
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      try {
+        const msgType =
+          typeof StegoConstants !== 'undefined'
+            ? StegoConstants.MSG_TYPES.PAGE_TITLE_CHANGED
+            : 'PAGE_TITLE_CHANGED';
+        chrome.runtime
+          .sendMessage({
+            type: msgType,
+            title: currentTitle,
+            cleanTitle: clean,
+            url: typeof location !== 'undefined' ? location.href : ''
+          })
+          .catch(() => {});
+      } catch {}
+    }
+  }
+
+  function startTitleObserver() {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
+    if (titleObserver) return;
+    lastReportedTitle = document.title || '';
+
+    const target = document.querySelector('title') || document.head || document.documentElement;
+    if (!target) return;
+
+    titleObserver = new MutationObserver(() => {
+      reportTitleChange();
+    });
+
+    try {
+      titleObserver.observe(target, {
+        subtree: true,
+        characterData: true,
+        childList: true
+      });
+    } catch {}
+  }
+
+  function stopTitleObserver() {
+    if (titleObserver) {
+      titleObserver.disconnect();
+      titleObserver = null;
+    }
+  }
+
   // Listen for control queries and sync toggle messages from extension side panel
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -204,6 +274,18 @@
       if (message?.type === 'DISABLE_TAB_SEEK_SYNC') {
         stopSync();
         sendResponse({ success: true, active: false });
+        return false;
+      }
+
+      if (message?.type === 'GET_PAGE_TITLE') {
+        const rawTitle = (typeof document !== 'undefined' ? document.title : '') || '';
+        const cleanTitle = getCleanTitle(rawTitle);
+        sendResponse({
+          success: true,
+          title: rawTitle,
+          cleanTitle,
+          url: typeof location !== 'undefined' ? location.href : ''
+        });
         return false;
       }
 
@@ -224,6 +306,11 @@
     });
   }
 
+  // Automatically observe title changes in top-level window
+  if (typeof window !== 'undefined' && window === window.top) {
+    startTitleObserver();
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       findAllVideos,
@@ -232,7 +319,11 @@
       attachVideoListeners,
       startSync,
       stopSync,
-      isSyncActive: () => isSyncActive
+      isSyncActive: () => isSyncActive,
+      startTitleObserver,
+      stopTitleObserver,
+      reportTitleChange,
+      getCleanTitle
     };
   }
 })();

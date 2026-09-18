@@ -157,3 +157,77 @@ test('startSync and stopSync manage listener lifecycle on demand', () => {
 
   delete global.document;
 });
+
+test('getCleanTitle cleans illegal filename characters and limits length', () => {
+  const { getCleanTitle } = require('../content/content.js');
+  assert.equal(
+    getCleanTitle('My Awesome Video: Episode 1? [1080p]'),
+    'My-Awesome-Video-Episode-1-[1080p]'
+  );
+  assert.equal(getCleanTitle(''), '');
+});
+
+test('reportTitleChange sends PAGE_TITLE_CHANGED message via chrome.runtime', () => {
+  const { reportTitleChange } = require('../content/content.js');
+  let dispatched = null;
+  global.chrome = {
+    runtime: {
+      sendMessage: async (msg) => {
+        dispatched = msg;
+        return true;
+      }
+    }
+  };
+  global.document = {
+    title: 'Brand New Stream Title'
+  };
+  global.location = {
+    href: 'https://example.com/watch?v=123'
+  };
+
+  reportTitleChange();
+
+  assert.ok(dispatched);
+  assert.equal(dispatched.type, 'PAGE_TITLE_CHANGED');
+  assert.equal(dispatched.title, 'Brand New Stream Title');
+  assert.equal(dispatched.cleanTitle, 'Brand-New-Stream-Title');
+  assert.equal(dispatched.url, 'https://example.com/watch?v=123');
+
+  delete global.chrome;
+  delete global.document;
+  delete global.location;
+});
+
+test('startTitleObserver and stopTitleObserver manage observer lifecycle', () => {
+  const { startTitleObserver, stopTitleObserver } = require('../content/content.js');
+  let observedTarget = null;
+  let disconnected = false;
+
+  class FakeMutationObserver {
+    constructor(cb) {
+      this.cb = cb;
+    }
+    observe(target) {
+      observedTarget = target;
+    }
+    disconnect() {
+      disconnected = true;
+    }
+  }
+
+  global.MutationObserver = FakeMutationObserver;
+  global.document = {
+    title: 'Test Title',
+    querySelector: (sel) => (sel === 'title' ? { tagName: 'TITLE' } : null)
+  };
+
+  startTitleObserver();
+  assert.ok(observedTarget);
+  assert.equal(observedTarget.tagName, 'TITLE');
+
+  stopTitleObserver();
+  assert.equal(disconnected, true);
+
+  delete global.MutationObserver;
+  delete global.document;
+});

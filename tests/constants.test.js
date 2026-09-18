@@ -11,7 +11,11 @@ test('StegoConstants provides expected message types and storage keys', () => {
   assert.equal(MSG_TYPES.STREAM_DETECTED, 'STREAM_DETECTED');
   assert.equal(MSG_TYPES.ENABLE_TAB_SEEK_SYNC, 'ENABLE_TAB_SEEK_SYNC');
   assert.equal(MSG_TYPES.DISABLE_TAB_SEEK_SYNC, 'DISABLE_TAB_SEEK_SYNC');
+  assert.equal(MSG_TYPES.GET_PAGE_TITLE, 'GET_PAGE_TITLE');
+  assert.equal(MSG_TYPES.PAGE_TITLE_CHANGED, 'PAGE_TITLE_CHANGED');
+  assert.equal(MSG_TYPES.STREAM_METADATA_UPDATED, 'STREAM_METADATA_UPDATED');
   assert.equal(STORAGE_KEYS.TAB_STREAMS, 'tabStreams');
+  assert.equal(STORAGE_KEYS.STREAM_METADATA, 'streamMetadata');
   assert.equal(STORAGE_KEYS.POPUP_STATE_PREFIX, 'stego_popup_state_');
 });
 

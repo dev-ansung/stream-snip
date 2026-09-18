@@ -186,6 +186,7 @@ function savePopupState() {
     isFull: fullVideoToggle?.checked || false,
     filename: filenameInput?.value || '',
     userCustomBaseName: userCustomBaseName || '',
+    isUserCustomFilename: Boolean(userCustomBaseName),
     format: formatSelect?.value || 'mp4'
   });
 }
@@ -208,14 +209,56 @@ function updateClipDuration() {
 }
 
 async function resolveDocumentTitle(targetTabId) {
-  if (!targetTabId) return null;
+  if (!targetTabId || typeof chrome === 'undefined' || !chrome.tabs) return null;
+  // Priority 1: Query active in-page document.title via content script
+  try {
+    const liveTitle = await new Promise((resolve) => {
+      chrome.tabs.sendMessage(targetTabId, { type: 'GET_PAGE_TITLE' }, (res) => {
+        if (!chrome.runtime.lastError && res?.success && res.cleanTitle) {
+          resolve(res.cleanTitle);
+        } else {
+          resolve(null);
+        }
+      });
+    });
+    if (liveTitle && !StegoTime.isGenericBase(liveTitle)) return liveTitle;
+  } catch {}
+
+  // Priority 2: Fall back to chrome.tabs.get
   try {
     const tab = await chrome.tabs.get(targetTabId);
     if (tab?.title) {
-      return StegoTime.cleanTitleForFilename(tab.title);
+      const clean = StegoTime.cleanTitleForFilename(tab.title);
+      if (clean && !StegoTime.isGenericBase(clean)) return clean;
     }
   } catch {}
   return null;
+}
+
+function getBestStreamBaseName(stream, fallbackTitle = '') {
+  if (stream?.cleanTitle && !StegoTime.isGenericBase(stream.cleanTitle)) {
+    return stream.cleanTitle;
+  }
+  if (fallbackTitle && !StegoTime.isGenericBase(fallbackTitle)) {
+    return fallbackTitle;
+  }
+  const targetUrl = stream?.url || '';
+  if (targetUrl) {
+    try {
+      const parsed = new URL(targetUrl);
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      const base = parts.pop() || 'video';
+      let cleanBase = base.replace(/\.m3u8$/i, '');
+      if (cleanBase === 'master' || cleanBase === 'index' || cleanBase.startsWith('index-')) {
+        const prev = parts.pop();
+        if (prev) cleanBase = `${prev}-${cleanBase}`;
+      }
+      if (cleanBase && !StegoTime.isGenericBase(cleanBase)) {
+        return cleanBase;
+      }
+    } catch {}
+  }
+  return 'video_clip';
 }
 
 function updateFilenameTimestamps() {
@@ -226,22 +269,37 @@ function updateFilenameTimestamps() {
   filenameInput.value = StegoTime.buildClipFilename(base, startStr, endStr, isFull, '-');
 }
 
-function updateDefaultFilename() {
-  if (!currentDefaultBaseName || StegoTime.isGenericBase(currentDefaultBaseName)) {
-    try {
-      const targetUrl = selectedVariant?.url || selectedStream?.url || '';
-      const parsedUrl = new URL(targetUrl);
-      const parts = parsedUrl.pathname.split('/').filter(Boolean);
-      const base = parts.pop() || 'video';
-      let cleanBase = base.replace(/\.m3u8$/i, '');
-      if (cleanBase === 'master' || cleanBase === 'index' || cleanBase.startsWith('index-')) {
-        const prev = parts.pop();
-        if (prev) cleanBase = `${prev}-${cleanBase}`;
-      }
-      if (!currentDefaultBaseName) currentDefaultBaseName = cleanBase;
-    } catch {
-      if (!currentDefaultBaseName) currentDefaultBaseName = 'video_clip';
+async function updateFilenameForSelectedStream(stream, overrideCustom = false) {
+  if (!stream) return;
+  if (userCustomBaseName && !overrideCustom) {
+    updateFilenameTimestamps();
+    return;
+  }
+
+  let liveTitle = null;
+  if (currentTabId) {
+    liveTitle = await resolveDocumentTitle(currentTabId);
+  }
+
+  const bestBase = liveTitle || getBestStreamBaseName(stream, currentDefaultBaseName);
+  if (bestBase && !StegoTime.isGenericBase(bestBase)) {
+    currentDefaultBaseName = bestBase;
+    if (stream) {
+      stream.cleanTitle = bestBase;
     }
+  }
+  updateFilenameTimestamps();
+}
+
+function updateDefaultFilename() {
+  if (userCustomBaseName) {
+    updateFilenameTimestamps();
+    return;
+  }
+  const stream = selectedStream || currentStreams[0];
+  const bestBase = getBestStreamBaseName(stream, currentDefaultBaseName);
+  if (bestBase && !StegoTime.isGenericBase(bestBase)) {
+    currentDefaultBaseName = bestBase;
   }
   updateFilenameTimestamps();
 }
@@ -599,6 +657,9 @@ streamSelect.addEventListener('change', () => {
   const selectedUrl = streamSelect.value;
   const stream = currentStreams.find((s) => s.url === selectedUrl);
   if (stream) {
+    if (!userCustomBaseName) {
+      updateFilenameForSelectedStream(stream);
+    }
     loadStream(stream).then(() => savePopupState());
   }
 });
@@ -633,8 +694,42 @@ window.addEventListener('beforeunload', () => {
   }
 });
 
-// Synchronize preview player when seek occurs on the host webpage player, or reload on STREAM_DETECTED
+// Synchronize preview player when seek occurs on the host webpage player, or reload on STREAM_DETECTED / title updates
 chrome.runtime.onMessage.addListener(async (message, sender) => {
+  const isTitleUpdateMsg =
+    message?.type === 'STREAM_METADATA_UPDATED' ||
+    message?.type === 'PAGE_TITLE_CHANGED' ||
+    (typeof StegoConstants !== 'undefined' &&
+      (message?.type === StegoConstants.MSG_TYPES.STREAM_METADATA_UPDATED ||
+        message?.type === StegoConstants.MSG_TYPES.PAGE_TITLE_CHANGED));
+
+  if (isTitleUpdateMsg) {
+    if (!currentTabId || !message.tabId || message.tabId === currentTabId) {
+      const cleanTitle =
+        message.cleanTitle ||
+        (message.tabTitle ? StegoTime.cleanTitleForFilename(message.tabTitle) : '');
+      if (cleanTitle && !StegoTime.isGenericBase(cleanTitle)) {
+        if (!userCustomBaseName) {
+          currentDefaultBaseName = cleanTitle;
+          if (selectedStream) {
+            selectedStream.cleanTitle = cleanTitle;
+          }
+          updateFilenameTimestamps();
+        }
+      }
+      if (Array.isArray(message.streams)) {
+        for (const s of message.streams) {
+          const local = currentStreams.find((cs) => cs.url === s.url);
+          if (local) {
+            if (s.cleanTitle) local.cleanTitle = s.cleanTitle;
+            if (s.pageTitle) local.pageTitle = s.pageTitle;
+          }
+        }
+      }
+    }
+    return;
+  }
+
   const isStreamDetectedMsg =
     message?.type === 'STREAM_DETECTED' ||
     (typeof StegoConstants !== 'undefined' &&
@@ -710,17 +805,18 @@ async function requestStreams(targetId) {
     currentTabId = response?.tabId || targetId;
     streamCountBadge.textContent = `${currentStreams.length} stream${currentStreams.length === 1 ? '' : 's'}`;
 
-    if (!currentDefaultBaseName || StegoTime.isGenericBase(currentDefaultBaseName)) {
-      if (response?.tabTitle) {
-        const detected = StegoTime.cleanTitleForFilename(response.tabTitle);
-        if (detected) currentDefaultBaseName = detected;
+    if (!userCustomBaseName) {
+      let liveTitle = null;
+      if (currentTabId) {
+        liveTitle = await resolveDocumentTitle(currentTabId);
       }
-      if (
-        (!currentDefaultBaseName || StegoTime.isGenericBase(currentDefaultBaseName)) &&
-        currentTabId
-      ) {
-        const code = await resolveDocumentTitle(currentTabId);
-        if (code) currentDefaultBaseName = code;
+      if (liveTitle && !StegoTime.isGenericBase(liveTitle)) {
+        currentDefaultBaseName = liveTitle;
+      } else if (response?.tabTitle) {
+        const detected = StegoTime.cleanTitleForFilename(response.tabTitle);
+        if (detected && !StegoTime.isGenericBase(detected)) {
+          currentDefaultBaseName = detected;
+        }
       }
       if (currentDefaultBaseName && !StegoTime.isGenericBase(currentDefaultBaseName)) {
         updateFilenameTimestamps();
@@ -787,7 +883,7 @@ async function requestStreams(targetId) {
       if (state.userCustomBaseName) {
         userCustomBaseName = state.userCustomBaseName;
       }
-      if (state.filename) {
+      if (state.isUserCustomFilename && state.filename) {
         filenameInput.value = state.filename;
       } else {
         updateFilenameTimestamps();
@@ -1068,25 +1164,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let targetId = tabIdFromUrl;
 
-  if (!targetId) {
+  if (!targetId && typeof chrome !== 'undefined' && chrome.tabs?.query) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     targetId = tab?.id || null;
-    if (tab?.title) {
-      const detected = StegoTime.cleanTitleForFilename(tab.title);
-      if (detected) {
-        currentDefaultBaseName = detected;
-        updateFilenameTimestamps();
-      }
-    }
   }
 
-  if (targetId && !currentDefaultBaseName) {
-    resolveDocumentTitle(targetId).then((code) => {
-      if (code) {
-        currentDefaultBaseName = code;
-        updateFilenameTimestamps();
-      }
-    });
+  if (targetId) {
+    const live = await resolveDocumentTitle(targetId);
+    if (live && !StegoTime.isGenericBase(live)) {
+      currentDefaultBaseName = live;
+      updateFilenameTimestamps();
+    }
   }
 
   requestStreams(targetId);
@@ -1117,7 +1205,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         currentDefaultBaseName = '';
         userCustomBaseName = null;
-        if (tab?.title) {
+        const live = await resolveDocumentTitle(activeInfo.tabId);
+        if (live && !StegoTime.isGenericBase(live)) {
+          currentDefaultBaseName = live;
+        } else if (tab?.title) {
           const detected = StegoTime.cleanTitleForFilename(tab.title);
           if (detected) currentDefaultBaseName = detected;
         }

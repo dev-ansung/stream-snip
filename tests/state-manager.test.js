@@ -41,3 +41,43 @@ test('StateManager loads and clears tab state using mocked chrome.storage.local'
 
   delete global.chrome;
 });
+
+test('StateManager persists and restores isUserCustomFilename flag', async () => {
+  const fakeStore = {};
+  global.chrome = {
+    storage: {
+      local: {
+        get: async (keys) => {
+          const res = {};
+          keys.forEach((k) => {
+            if (fakeStore[k]) res[k] = fakeStore[k];
+          });
+          return res;
+        },
+        set: async (obj) => {
+          Object.assign(fakeStore, obj);
+        },
+        remove: async (keys) => {
+          keys.forEach((k) => delete fakeStore[k]);
+        }
+      }
+    }
+  };
+
+  const sm = new StateManagerClass({ debounceMs: 5 });
+  sm.saveState(101, {
+    streamUrl: 'https://example.com/live.m3u8',
+    filename: 'Custom_User_Name_10_00-15_00',
+    userCustomBaseName: 'Custom_User_Name',
+    isUserCustomFilename: true
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const state = await sm.loadState(101);
+  assert.equal(state.isUserCustomFilename, true);
+  assert.equal(state.userCustomBaseName, 'Custom_User_Name');
+  assert.equal(state.filename, 'Custom_User_Name_10_00-15_00');
+
+  delete global.chrome;
+});

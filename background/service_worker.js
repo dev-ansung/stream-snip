@@ -4,10 +4,10 @@
  */
 
 try {
-  importScripts('/lib/constants.js');
+  importScripts('/lib/constants.js', '/lib/time.js');
 } catch {
   try {
-    importScripts('../lib/constants.js');
+    importScripts('../lib/constants.js', '../lib/time.js');
   } catch {
     // Ignored in non-worker environments (e.g. tests)
   }
@@ -22,8 +22,24 @@ function getPopupStateKeySafe(tabId) {
 
 const tabStreams = new Map();
 const tabMetadata = new Map();
+const streamMetadata = new Map();
 
 let lastActiveMediaTabId = null;
+
+function getCleanTitleSafe(title) {
+  if (!title) return '';
+  if (typeof StegoTime !== 'undefined' && StegoTime.cleanTitleForFilename) {
+    return StegoTime.cleanTitleForFilename(title);
+  }
+  let cleaned = title
+    .replace(/[\\/*?:"<>|]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .trim()
+    .replace(/^-+|-+$/g, '');
+  if (cleaned.length > 80) cleaned = cleaned.slice(0, 80).replace(/-+$/g, '');
+  return cleaned;
+}
 
 // Helper to extract headers into an object
 function headersToObject(headersArray) {
@@ -37,7 +53,7 @@ function headersToObject(headersArray) {
   return headers;
 }
 
-// Persist tabStreams and tabMetadata into chrome.storage.local
+// Persist tabStreams, tabMetadata, and streamMetadata into chrome.storage.local
 async function persistState() {
   try {
     const streamsObj = {};
@@ -48,10 +64,15 @@ async function persistState() {
     for (const [k, v] of tabMetadata.entries()) {
       metaObj[k] = v;
     }
+    const streamMetaObj = {};
+    for (const [k, v] of streamMetadata.entries()) {
+      streamMetaObj[k] = v;
+    }
     const storageKeys = typeof StegoConstants !== 'undefined' ? StegoConstants.STORAGE_KEYS : null;
     await chrome.storage.local.set({
       [storageKeys?.TAB_STREAMS || 'tabStreams']: streamsObj,
       [storageKeys?.TAB_METADATA || 'tabMetadata']: metaObj,
+      [storageKeys?.STREAM_METADATA || 'streamMetadata']: streamMetaObj,
       [storageKeys?.LAST_ACTIVE_TAB_ID || 'lastActiveMediaTabId']: lastActiveMediaTabId
     });
   } catch (err) {
@@ -65,6 +86,7 @@ async function loadPersistedState() {
     const data = await chrome.storage.local.get([
       'tabStreams',
       'tabMetadata',
+      'streamMetadata',
       'lastActiveMediaTabId'
     ]);
     if (data.tabStreams) {
@@ -75,6 +97,11 @@ async function loadPersistedState() {
     if (data.tabMetadata) {
       for (const [tId, meta] of Object.entries(data.tabMetadata)) {
         tabMetadata.set(Number(tId), meta);
+      }
+    }
+    if (data.streamMetadata) {
+      for (const [sUrl, sMeta] of Object.entries(data.streamMetadata)) {
+        streamMetadata.set(sUrl, sMeta);
       }
     }
     if (data.lastActiveMediaTabId) {
@@ -96,10 +123,50 @@ if (typeof chrome !== 'undefined' && chrome.sidePanel?.setPanelBehavior) {
 }
 
 // Track tab updates to keep page title in sync
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (tab?.title) {
-    tabMetadata.set(tabId, { title: tab.title, url: tab.url });
-    persistState();
+    const pageTitle = tab.title;
+    const pageUrl = tab.url || '';
+    const cleanTitle = getCleanTitleSafe(pageTitle);
+    tabMetadata.set(tabId, { title: pageTitle, url: pageUrl });
+
+    const streams = tabStreams.get(tabId);
+    let updatedAny = false;
+    if (streams && streams.length > 0) {
+      for (const s of streams) {
+        s.pageTitle = pageTitle;
+        s.pageUrl = pageUrl;
+        s.cleanTitle = cleanTitle;
+        streamMetadata.set(s.url, {
+          url: s.url,
+          tabId,
+          pageTitle,
+          pageUrl,
+          cleanTitle,
+          timestamp: s.timestamp || Date.now()
+        });
+        updatedAny = true;
+      }
+    }
+    await persistState();
+
+    if (updatedAny) {
+      try {
+        const msgType =
+          typeof StegoConstants !== 'undefined'
+            ? StegoConstants.MSG_TYPES.STREAM_METADATA_UPDATED
+            : 'STREAM_METADATA_UPDATED';
+        chrome.runtime
+          .sendMessage({
+            type: msgType,
+            tabId,
+            tabTitle: pageTitle,
+            cleanTitle,
+            streams
+          })
+          .catch(() => {});
+      } catch {}
+    }
   }
 });
 
@@ -107,6 +174,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (details.frameId === 0) {
     const { tabId } = details;
+    const existing = tabStreams.get(tabId) || [];
+    for (const s of existing) {
+      streamMetadata.delete(s.url);
+    }
     tabStreams.delete(tabId);
     tabMetadata.delete(tabId);
     try {
@@ -122,6 +193,10 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
 // Clean up state when a tab is closed
 chrome.tabs.onRemoved.addListener(async (tabId) => {
+  const existing = tabStreams.get(tabId) || [];
+  for (const s of existing) {
+    streamMetadata.delete(s.url);
+  }
   tabStreams.delete(tabId);
   tabMetadata.delete(tabId);
   try {
@@ -142,26 +217,47 @@ chrome.webRequest.onSendHeaders.addListener(
 
     lastActiveMediaTabId = tabId;
 
+    let pageTitle = '';
+    let pageUrl = '';
     try {
       const tab = await chrome.tabs.get(tabId);
       if (tab?.title) {
-        tabMetadata.set(tabId, { title: tab.title, url: tab.url });
+        pageTitle = tab.title;
+        pageUrl = tab.url || '';
+        tabMetadata.set(tabId, { title: pageTitle, url: pageUrl });
       }
     } catch {}
 
+    const cleanTitle = getCleanTitleSafe(pageTitle);
     const headers = headersToObject(requestHeaders);
     const streams = tabStreams.get(tabId) || [];
 
+    const streamItem = {
+      url,
+      headers,
+      timestamp: Date.now(),
+      pageTitle,
+      pageUrl,
+      cleanTitle
+    };
+    streamMetadata.set(url, streamItem);
+
     // Avoid duplicate URL registrations
-    const exists = streams.some((s) => s.url === url);
-    if (!exists) {
-      streams.unshift({
-        url,
-        headers,
-        timestamp: Date.now()
-      });
+    const existsIndex = streams.findIndex((s) => s.url === url);
+    if (existsIndex >= 0) {
+      streams[existsIndex].headers = headers;
+      if (cleanTitle && !streams[existsIndex].cleanTitle) {
+        streams[existsIndex].cleanTitle = cleanTitle;
+        streams[existsIndex].pageTitle = pageTitle;
+      }
+      await persistState();
+    } else {
+      streams.unshift(streamItem);
       // Cap at 20 streams per tab
-      if (streams.length > 20) streams.pop();
+      if (streams.length > 20) {
+        const removed = streams.pop();
+        if (removed) streamMetadata.delete(removed.url);
+      }
       tabStreams.set(tabId, streams);
 
       await persistState();
@@ -180,7 +276,9 @@ chrome.webRequest.onSendHeaders.addListener(
           .sendMessage({
             type: streamDetectedType,
             tabId,
-            streamUrl: url
+            streamUrl: url,
+            pageTitle,
+            cleanTitle
           })
           .catch(() => {});
       } catch {}
@@ -239,15 +337,86 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         } catch {}
       }
 
-      sendResponse({ streams, tabId, tabTitle: title, tabUrl: url });
+      // Enrich streams with streamMetadata if any field is missing
+      for (const s of streams) {
+        const meta = streamMetadata.get(s.url);
+        if (meta) {
+          if (!s.cleanTitle && meta.cleanTitle) s.cleanTitle = meta.cleanTitle;
+          if (!s.pageTitle && meta.pageTitle) s.pageTitle = meta.pageTitle;
+          if (!s.pageUrl && meta.pageUrl) s.pageUrl = meta.pageUrl;
+        } else if (title && !s.cleanTitle) {
+          s.pageTitle = title;
+          s.pageUrl = url;
+          s.cleanTitle = getCleanTitleSafe(title);
+        }
+      }
+
+      sendResponse({
+        streams,
+        tabId,
+        tabTitle: title,
+        tabUrl: url,
+        streamMetadata: Object.fromEntries(streamMetadata)
+      });
     })();
     return true;
+  }
+
+  if (request.type === 'PAGE_TITLE_CHANGED') {
+    (async () => {
+      const tabId = sender?.tab?.id;
+      if (!tabId || !request.title) return;
+      const pageTitle = request.title;
+      const pageUrl = request.url || sender?.tab?.url || '';
+      const cleanTitle = request.cleanTitle || getCleanTitleSafe(pageTitle);
+
+      tabMetadata.set(tabId, { title: pageTitle, url: pageUrl });
+
+      const streams = tabStreams.get(tabId);
+      if (streams && streams.length > 0) {
+        for (const s of streams) {
+          s.pageTitle = pageTitle;
+          s.pageUrl = pageUrl;
+          s.cleanTitle = cleanTitle;
+          streamMetadata.set(s.url, {
+            url: s.url,
+            tabId,
+            pageTitle,
+            pageUrl,
+            cleanTitle,
+            timestamp: s.timestamp || Date.now()
+          });
+        }
+      }
+      await persistState();
+
+      try {
+        const msgType =
+          typeof StegoConstants !== 'undefined'
+            ? StegoConstants.MSG_TYPES.STREAM_METADATA_UPDATED
+            : 'STREAM_METADATA_UPDATED';
+        chrome.runtime
+          .sendMessage({
+            type: msgType,
+            tabId,
+            tabTitle: pageTitle,
+            cleanTitle,
+            streams
+          })
+          .catch(() => {});
+      } catch {}
+    })();
+    return false;
   }
 
   if (request.type === 'CLEAR_STREAMS') {
     (async () => {
       const tabId = request.tabId;
       if (tabId) {
+        const streams = tabStreams.get(tabId) || [];
+        for (const s of streams) {
+          streamMetadata.delete(s.url);
+        }
         tabStreams.delete(tabId);
         tabMetadata.delete(tabId);
         try {
@@ -260,6 +429,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       } else {
         tabStreams.clear();
         tabMetadata.clear();
+        streamMetadata.clear();
       }
       await persistState();
       sendResponse({ success: true });

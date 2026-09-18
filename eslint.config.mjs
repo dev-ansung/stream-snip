@@ -35,7 +35,8 @@ export default [
         ...globals.serviceworker,
         ...globals.webextensions,
         chrome: 'readonly',
-        StegoConstants: 'readonly'
+        StegoConstants: 'readonly',
+        StegoTime: 'readonly'
       }
     },
     rules: {
@@ -81,7 +82,9 @@ export default [
         ...globals.browser,
         ...globals.webextensions,
         ...globals.node,
-        chrome: 'readonly'
+        chrome: 'readonly',
+        StegoConstants: 'readonly',
+        StegoTime: 'readonly'
       }
     }
   },
