@@ -728,8 +728,8 @@ async function executeDownload() {
     progressStatus.textContent = fmt === 'mp4' ? 'Transmuxing to MP4...' : 'Saving file...';
     const base = filenameInput.value.trim().replace(/\.(mp4|ts)$/i, '') || 'video_clip';
     const filename = `${base}.${fmt}`;
-
-    await downloader.saveToFile(mergedBytes, filename, fmt);
+    const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
+    await downloader.saveToFile(mergedBytes, filename, fmt, clipDuration);
     progressStatus.textContent = `✅ Saved ${filename} successfully!`;
   } catch (err) {
     if (activeAbortController?.signal.aborted) {
