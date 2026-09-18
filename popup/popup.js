@@ -19,6 +19,7 @@ const streamSelect = document.getElementById('streamSelect');
 const streamCountBadge = document.getElementById('streamCount');
 const videoInfoEl = document.getElementById('videoInfo');
 const activeQualityBadge = document.getElementById('activeQualityBadge');
+const syncTabSeekToggle = document.getElementById('syncTabSeekToggle');
 
 const mediaResolutionEl = document.getElementById('mediaResolution');
 const mediaBitrateEl = document.getElementById('mediaBitrate');
@@ -180,7 +181,8 @@ function savePopupState() {
     isFull: fullVideoToggle?.checked || false,
     filename: filenameInput?.value || '',
     userCustomBaseName: userCustomBaseName || '',
-    format: formatSelect?.value || 'mp4'
+    format: formatSelect?.value || 'mp4',
+    syncWithTab: syncTabSeekToggle ? syncTabSeekToggle.checked : true
   });
 }
 
@@ -595,6 +597,35 @@ streamSelect.addEventListener('change', () => {
   }
 });
 
+if (syncTabSeekToggle) {
+  syncTabSeekToggle.addEventListener('change', () => {
+    savePopupState();
+  });
+}
+
+// Synchronize preview player when seek occurs on the host webpage player
+chrome.runtime.onMessage.addListener((message, sender) => {
+  const isSeekMsg =
+    message?.type === 'TAB_MEDIA_SEEK' ||
+    (typeof StegoConstants !== 'undefined' &&
+      message?.type === StegoConstants.MSG_TYPES.TAB_MEDIA_SEEK);
+
+  if (isSeekMsg && typeof message.currentTime === 'number') {
+    if (sender?.tab?.id && currentTabId && sender.tab.id !== currentTabId) {
+      return;
+    }
+
+    if (syncTabSeekToggle && !syncTabSeekToggle.checked) {
+      return;
+    }
+
+    const didSeek = PlayerController.seekTo(message.currentTime);
+    if (didSeek) {
+      UiFeedback.info(`Synced to tab (${StegoTime.formatDuration(message.currentTime)})`, 1200);
+    }
+  }
+});
+
 // Bootstrap Popup
 document.addEventListener('DOMContentLoaded', async () => {
   PlayerController.init(videoEl, {
@@ -726,7 +757,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         formatSelect.value = state.format;
         btnDownload.textContent = `⬇️ Download ${state.format.toUpperCase()} Clip`;
       }
+      if (state.syncWithTab !== undefined && syncTabSeekToggle) {
+        syncTabSeekToggle.checked = state.syncWithTab;
+      }
       updateClipDuration();
+    }
+
+    if (currentTabId && (!syncTabSeekToggle || syncTabSeekToggle.checked)) {
+      const getMediaTimeType =
+        typeof StegoConstants !== 'undefined'
+          ? StegoConstants.MSG_TYPES.GET_PAGE_MEDIA_TIME
+          : 'GET_PAGE_MEDIA_TIME';
+      try {
+        chrome.tabs.sendMessage(currentTabId, { type: getMediaTimeType }, (response) => {
+          if (
+            !chrome.runtime.lastError &&
+            response?.success &&
+            typeof response.currentTime === 'number'
+          ) {
+            PlayerController.seekTo(response.currentTime);
+          }
+        });
+      } catch {}
     }
 
     if (shouldAutoDownload) {

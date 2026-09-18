@@ -82,6 +82,16 @@ class PlayerControllerClass {
     }
   }
 
+  seekTo(seconds, driftThreshold = 0.5) {
+    if (!this.videoEl || isNaN(seconds)) return false;
+    const cur = this.videoEl.currentTime || 0;
+    if (Math.abs(cur - seconds) > driftThreshold) {
+      this.videoEl.currentTime = seconds;
+      return true;
+    }
+    return false;
+  }
+
   loadVariant(variant) {
     this.resetMediaInfo();
 

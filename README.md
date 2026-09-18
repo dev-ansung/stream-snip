@@ -11,6 +11,7 @@ A lightweight standalone Google Chrome Extension (Manifest V3) that intercepts H
 - **One-Click Range Pickers**: Click "⏱️ Current" while watching the video preview to lock in your start and end clipping timestamps.
 - **Automatic Steganography Stripping**: Transparently detects dummy 1x1 PNG headers and extracts raw MPEG-TS video payloads.
 - **Concurrent Chunk Downloader**: Downloads only the overlapping segments concurrently and saves the assembled `.mp4` or `.ts` video to your Downloads folder.
+- **Live Tab Seek Synchronization**: Automatically follows seek / scrub events on the webpage video player so you can navigate directly in your browser player while previewing in StegoClip. Includes a "🔗 Sync" toggle.
 - **Resource Management & Safety**: Automatic Blob URL lifecycle management revokes object URLs via `chrome.downloads.onChanged` immediately upon download completion, preventing memory leaks on large downloads.
 
 ## Architecture
@@ -19,6 +20,8 @@ A lightweight standalone Google Chrome Extension (Manifest V3) that intercepts H
 stego-clip-extension/
 ├── background/
 │   └── service_worker.js     # Intercepts M3U8 requests, manages declarativeNetRequest rules
+├── content/
+│   └── content.js            # Observes HTML5 video elements and reports seek events to preview
 ├── lib/
 │   ├── constants.js          # Shared message types, storage keys, and safety bounds
 │   ├── downloader.js         # Concurrent segment fetcher and stego stripper
@@ -34,7 +37,7 @@ stego-clip-extension/
 │   ├── popup.js              # Presentation coordinator and user event wiring
 │   ├── state-manager.js      # Debounced, tab-isolated storage synchronization
 │   └── ui-feedback.js        # Non-blocking inline toast feedback
-└── tests/                    # Node test runner suite (39 automated unit tests)
+└── tests/                    # Node test runner suite (43 automated unit tests)
 ```
 
 ## Installation in Google Chrome

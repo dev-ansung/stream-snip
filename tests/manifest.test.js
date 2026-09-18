@@ -88,7 +88,18 @@ test('popup.html contains clear streams and full page studio buttons', () => {
   assert.ok(html.includes('id="btnClearStreams"'), 'Must have btnClearStreams');
   assert.ok(html.includes('id="btnOpenTab"'), 'Must have btnOpenTab');
   assert.ok(html.includes('id="toastContainer"'), 'Must have toastContainer');
+  assert.ok(html.includes('id="syncTabSeekToggle"'), 'Must have syncTabSeekToggle');
   assert.ok(html.includes('ui-feedback.js'), 'Must include ui-feedback.js');
   assert.ok(html.includes('player-controller.js'), 'Must include player-controller.js');
   assert.ok(html.includes('state-manager.js'), 'Must include state-manager.js');
+});
+
+test('manifest declares content_scripts pointing to existing content script', () => {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.ok(Array.isArray(manifest.content_scripts), 'Must declare content_scripts array');
+  assert.ok(manifest.content_scripts.length > 0, 'Must have at least 1 content script entry');
+  const cs = manifest.content_scripts[0];
+  assert.ok(cs.js && cs.js.includes('content/content.js'));
+  const csPath = path.join(rootDir, 'content', 'content.js');
+  assert.ok(fs.existsSync(csPath), 'content/content.js file must exist');
 });

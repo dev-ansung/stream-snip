@@ -39,7 +39,15 @@
           <video id="previewPlayer" controls playsinline></video>
           <div class="stream-status-bar">
             <span id="videoInfo" class="meta-info">Duration: --:--</span>
-            <span id="activeQualityBadge" class="badge-subtle">Auto</span>
+            <div class="status-bar-actions">
+              <label
+                class="sync-toggle-label"
+                title="Synchronize preview player when seeking in the webpage video player"
+              >
+                <input type="checkbox" id="syncTabSeekToggle" checked /> 🔗 Sync
+              </label>
+              <span id="activeQualityBadge" class="badge-subtle">Auto</span>
+            </div>
           </div>
         </section>
 

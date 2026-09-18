@@ -73,6 +73,19 @@ export default [
     }
   },
 
+  // Content scripts (Webpage context with WebExtensions messaging)
+  {
+    files: ['content/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.webextensions,
+        ...globals.node,
+        chrome: 'readonly'
+      }
+    }
+  },
+
   // Libraries in lib/
   {
     files: ['lib/**/*.js'],
