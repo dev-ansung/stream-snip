@@ -460,6 +460,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               requestHeaders: modifyHeaders
             },
             condition: {
+              ...(chrome.runtime?.id ? { initiatorDomains: [chrome.runtime.id] } : {}),
               resourceTypes: ['xmlhttprequest', 'media', 'image']
             }
           }

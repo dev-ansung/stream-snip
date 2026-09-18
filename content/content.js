@@ -239,20 +239,35 @@
     if (titleObserver) return;
     lastReportedTitle = document.title || '';
 
-    const target = document.querySelector('title') || document.head || document.documentElement;
-    if (!target) return;
-
-    titleObserver = new MutationObserver(() => {
-      reportTitleChange();
-    });
-
-    try {
-      titleObserver.observe(target, {
-        subtree: true,
-        characterData: true,
-        childList: true
+    const titleEl = document.querySelector('title');
+    if (titleEl) {
+      titleObserver = new MutationObserver(() => {
+        reportTitleChange();
       });
-    } catch {}
+      try {
+        titleObserver.observe(titleEl, {
+          characterData: true,
+          childList: true
+        });
+      } catch {}
+      return;
+    }
+
+    if (document.head) {
+      titleObserver = new MutationObserver(() => {
+        const t = document.querySelector('title');
+        if (t) {
+          stopTitleObserver();
+          startTitleObserver();
+          reportTitleChange();
+        }
+      });
+      try {
+        titleObserver.observe(document.head, {
+          childList: true
+        });
+      } catch {}
+    }
   }
 
   function stopTitleObserver() {
