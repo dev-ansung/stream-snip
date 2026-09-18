@@ -960,66 +960,77 @@ async function executeDownloadTaskMode(targetId) {
     });
   }
 
-  if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Loading stream configuration...';
+  try {
+    if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Loading stream configuration...';
 
-  // Load state saved by side panel
-  let savedState = targetId ? await StateManager.loadState(targetId) : null;
+    // Load state saved by side panel
+    let savedState = targetId ? await StateManager.loadState(targetId) : null;
 
-  if (!savedState || !savedState.streamUrl) {
+    if (!savedState || !savedState.streamUrl) {
+      const getStreamsType =
+        typeof StegoConstants !== 'undefined'
+          ? StegoConstants.MSG_TYPES.GET_STREAMS
+          : 'GET_STREAMS';
+      const streamsResp = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, resolve);
+      });
+      const fallbackTabId = streamsResp?.tabId;
+      if (fallbackTabId && fallbackTabId !== targetId) {
+        savedState = await StateManager.loadState(fallbackTabId);
+      }
+    }
+
+    if (!savedState || !savedState.streamUrl) {
+      throw new Error('Stream configuration not found in local storage.');
+    }
+
     const getStreamsType =
       typeof StegoConstants !== 'undefined' ? StegoConstants.MSG_TYPES.GET_STREAMS : 'GET_STREAMS';
     const streamsResp = await new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, resolve);
     });
-    const fallbackTabId = streamsResp?.tabId;
-    if (fallbackTabId && fallbackTabId !== targetId) {
-      savedState = await StateManager.loadState(fallbackTabId);
-    }
-  }
 
-  if (!savedState || !savedState.streamUrl) {
-    if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Failed: Stream configuration not found.';
-    if (dlStatusBadge) {
-      dlStatusBadge.textContent = 'Error';
-      dlStatusBadge.style.backgroundColor = '#fecaca';
-      dlStatusBadge.style.color = '#991b1b';
-    }
-    return;
-  }
+    const stream = (streamsResp?.streams || []).find((s) => s.url === savedState.streamUrl) || {
+      url: savedState.streamUrl,
+      headers: {}
+    };
 
-  const getStreamsType =
-    typeof StegoConstants !== 'undefined' ? StegoConstants.MSG_TYPES.GET_STREAMS : 'GET_STREAMS';
-  const streamsResp = await new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, resolve);
-  });
+    const applyDnrType =
+      typeof StegoConstants !== 'undefined'
+        ? StegoConstants.MSG_TYPES.APPLY_DNR_RULES
+        : 'APPLY_DNR_RULES';
+    await new Promise((resolve) => {
+      chrome.runtime.sendMessage(
+        {
+          type: applyDnrType,
+          headers: stream.headers
+        },
+        () => {
+          if (chrome.runtime.lastError) {
+            // Ignored
+          }
+          resolve();
+        }
+      );
+    });
 
-  const stream = (streamsResp?.streams || []).find((s) => s.url === savedState.streamUrl) || {
-    url: savedState.streamUrl,
-    headers: {}
-  };
+    const variantUrl = savedState.variantUrl || savedState.streamUrl;
+    const fmt = savedState.format || 'mp4';
+    const rawBase = (savedState.filename || 'video_clip').replace(/\.(mp4|ts)$/i, '');
+    const finalFilename = `${rawBase}.${fmt}`;
 
-  const applyDnrType =
-    typeof StegoConstants !== 'undefined'
-      ? StegoConstants.MSG_TYPES.APPLY_DNR_RULES
-      : 'APPLY_DNR_RULES';
-  chrome.runtime.sendMessage({
-    type: applyDnrType,
-    headers: stream.headers
-  });
+    document.title = `📥 Downloading ${finalFilename}`;
+    if (dlFilename) dlFilename.textContent = finalFilename;
 
-  const variantUrl = savedState.variantUrl || savedState.streamUrl;
-  const fmt = savedState.format || 'mp4';
-  const rawBase = (savedState.filename || 'video_clip').replace(/\.(mp4|ts)$/i, '');
-  const finalFilename = `${rawBase}.${fmt}`;
+    if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Parsing stream playlist...';
 
-  document.title = `📥 Downloading ${finalFilename}`;
-  if (dlFilename) dlFilename.textContent = finalFilename;
+    let mediaPlaylistUrl = variantUrl;
+    let mediaText = '';
 
-  if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Parsing stream playlist...';
-
-  let mediaPlaylistUrl = variantUrl;
-  try {
     const resp = await fetch(variantUrl);
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status} fetching playlist: ${resp.statusText}`);
+    }
     const text = await resp.text();
 
     if (text.includes('#EXT-X-STREAM-INF')) {
@@ -1027,49 +1038,52 @@ async function executeDownloadTaskMode(targetId) {
       if (variants.length > 0) {
         mediaPlaylistUrl = variants[0].url;
         if (dlQuality) dlQuality.textContent = variants[0].label;
+        const mediaResp = await fetch(mediaPlaylistUrl);
+        if (!mediaResp.ok) {
+          throw new Error(
+            `HTTP ${mediaResp.status} fetching variant playlist: ${mediaResp.statusText}`
+          );
+        }
+        mediaText = await mediaResp.text();
+      } else {
+        mediaText = text;
       }
     } else {
       if (dlQuality) dlQuality.textContent = 'Direct Stream';
+      mediaText = text;
     }
-  } catch (err) {
-    console.warn('[Downloader] Failed parsing playlist variants:', err);
-  }
 
-  const mediaResp = await fetch(mediaPlaylistUrl);
-  const mediaText = await mediaResp.text();
-  const timeline = StegoParser.PlaylistParser.parseMediaPlaylist(mediaText, mediaPlaylistUrl);
+    const timeline = StegoParser.PlaylistParser.parseManifest(mediaText, mediaPlaylistUrl);
 
-  let startSec = 0;
-  let endSec = timeline.totalDuration;
+    let startSec = 0;
+    let endSec = timeline.totalDuration;
 
-  if (!savedState.isFull && savedState.startTime && savedState.endTime) {
-    try {
-      startSec = StegoTime.parseTimestamp(savedState.startTime);
-      endSec = StegoTime.parseTimestamp(savedState.endTime);
-    } catch {}
-  }
+    if (!savedState.isFull && savedState.startTime && savedState.endTime) {
+      try {
+        startSec = StegoTime.parseTimestamp(savedState.startTime);
+        endSec = StegoTime.parseTimestamp(savedState.endTime);
+      } catch {}
+    }
 
-  const overlapping = timeline.getOverlappingSegments(startSec, endSec);
-  if (overlapping.length === 0) {
+    const overlapping = timeline.getOverlappingSegments(startSec, endSec);
+    if (overlapping.length === 0) {
+      throw new Error('No video segments found in selected range.');
+    }
+
+    const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
+    if (dlClipRange) {
+      dlClipRange.textContent = `${StegoTime.formatDuration(startSec)} - ${StegoTime.formatDuration(
+        endSec
+      )} (${StegoTime.formatDuration(clipDuration)})`;
+    }
+
     if (dlTaskSubtitle)
-      dlTaskSubtitle.textContent = 'Error: No video segments found in selected range.';
-    return;
-  }
+      dlTaskSubtitle.textContent = `Downloading ${overlapping.length} segments...`;
 
-  const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
-  if (dlClipRange) {
-    dlClipRange.textContent = `${StegoTime.formatDuration(startSec)} - ${StegoTime.formatDuration(
-      endSec
-    )} (${StegoTime.formatDuration(clipDuration)})`;
-  }
+    const concurrency =
+      typeof StegoConstants !== 'undefined' ? StegoConstants.CONFIG.DEFAULT_CONCURRENCY : 6;
+    const downloader = new StegoDownloader.SegmentDownloader({ concurrency });
 
-  if (dlTaskSubtitle) dlTaskSubtitle.textContent = `Downloading ${overlapping.length} segments...`;
-
-  const concurrency =
-    typeof StegoConstants !== 'undefined' ? StegoConstants.CONFIG.DEFAULT_CONCURRENCY : 6;
-  const downloader = new StegoDownloader.SegmentDownloader({ concurrency });
-
-  try {
     const mergedBytes = await downloader.downloadSegments(
       overlapping,
       stream.headers,

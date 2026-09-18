@@ -96,3 +96,15 @@ test('PlaylistParser infers sibling variants from index-f3 URL', () => {
   assert.equal(variants[3].height, 360);
   assert.ok(variants[3].url.includes('index-f4-'));
 });
+
+test('PlaylistParser parseMediaPlaylist alias functions identically to parseManifest', () => {
+  const mediaM3u8 = `#EXTM3U
+#EXTINF:6.0,
+seg0.ts
+#EXT-X-ENDLIST
+`;
+  const timeline = PlaylistParser.parseMediaPlaylist(mediaM3u8, 'https://cdn.example.com/');
+  assert.equal(timeline.segments.length, 1);
+  assert.equal(timeline.totalDuration, 6.0);
+  assert.equal(timeline.segments[0].url, 'https://cdn.example.com/seg0.ts');
+});
