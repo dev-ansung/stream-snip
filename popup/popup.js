@@ -1,8 +1,8 @@
 /**
  * UI controller for the StegoClip Popup & Full-Page Studio.
+ * Coordinates PlayerController, StateManager, UiFeedback, and SegmentDownloader.
  */
 
-let hlsInstance = null;
 let currentStreams = [];
 let selectedStream = null;
 let currentVariants = [];
@@ -47,28 +47,16 @@ const progressStatus = document.getElementById('progressStatus');
 const btnOpenTab = document.getElementById('btnOpenTab');
 const btnClearStreams = document.getElementById('btnClearStreams');
 
-// Media information state
-const mediaInfoState = {
-  width: 0,
-  height: 0,
-  bitrate: 0,
-  videoCodec: '',
-  audioCodec: '',
-  totalDuration: 0,
-  segmentCount: 0,
-  avgSegmentDuration: 0
-};
+// Check if running in full-page mode
+const urlParams = new URLSearchParams(window.location.search);
+const isFullPageMode = urlParams.get('mode') === 'full' || window.innerWidth > 500;
+const tabIdFromUrl = urlParams.get('tabId') ? parseInt(urlParams.get('tabId'), 10) : null;
+const shouldAutoDownload =
+  urlParams.get('download') === '1' || urlParams.get('autoDownload') === 'true';
 
-function resetMediaInfo() {
-  mediaInfoState.width = 0;
-  mediaInfoState.height = 0;
-  mediaInfoState.bitrate = 0;
-  mediaInfoState.videoCodec = '';
-  mediaInfoState.audioCodec = '';
-  mediaInfoState.totalDuration = 0;
-  mediaInfoState.segmentCount = 0;
-  mediaInfoState.avgSegmentDuration = 0;
-  renderMediaDetails();
+if (isFullPageMode) {
+  document.body.classList.add('full-page');
+  if (btnOpenTab) btnOpenTab.style.display = 'none';
 }
 
 function getHeightLabel(height) {
@@ -100,12 +88,11 @@ function formatCodecString(codecStr) {
     .join(' / ');
 }
 
-function renderMediaDetails() {
-  // 1. Resolution
-  if (mediaInfoState.width > 0 && mediaInfoState.height > 0) {
-    const label = getHeightLabel(mediaInfoState.height);
-    mediaResolutionEl.textContent = `${mediaInfoState.width} × ${mediaInfoState.height} (${label})`;
-    activeQualityBadge.textContent = `${label} (${mediaInfoState.width}x${mediaInfoState.height})`;
+function renderMediaDetails(info = PlayerController.getMediaInfo()) {
+  if (info.width > 0 && info.height > 0) {
+    const label = getHeightLabel(info.height);
+    mediaResolutionEl.textContent = `${info.width} × ${info.height} (${label})`;
+    activeQualityBadge.textContent = `${label} (${info.width}x${info.height})`;
   } else if (selectedVariant?.height > 0) {
     const label = getHeightLabel(selectedVariant.height);
     const res = selectedVariant.resolution || `${selectedVariant.height}p`;
@@ -119,49 +106,41 @@ function renderMediaDetails() {
     activeQualityBadge.textContent = 'Auto';
   }
 
-  // 2. Bitrate
-  const bps = mediaInfoState.bitrate || selectedVariant?.bandwidth || 0;
+  const bps = info.bitrate || selectedVariant?.bandwidth || 0;
   mediaBitrateEl.textContent = bps > 0 ? StegoTime.formatBitrate(bps) : '--';
 
-  // 3. Codecs
   let codecStr = '';
-  if (mediaInfoState.videoCodec || mediaInfoState.audioCodec) {
-    const v = formatCodecName(mediaInfoState.videoCodec);
-    const a = formatCodecName(mediaInfoState.audioCodec);
+  if (info.videoCodec || info.audioCodec) {
+    const v = formatCodecName(info.videoCodec);
+    const a = formatCodecName(info.audioCodec);
     codecStr = [v, a].filter(Boolean).join(' / ');
   } else if (selectedVariant?.codecs) {
     codecStr = formatCodecString(selectedVariant.codecs);
   }
   mediaCodecsEl.textContent = codecStr || 'H.264 / AAC';
 
-  // 4. Duration
-  if (mediaInfoState.totalDuration > 0) {
-    mediaDurationEl.textContent = StegoTime.formatDuration(mediaInfoState.totalDuration);
-    videoInfoEl.textContent = `Duration: ${StegoTime.formatDuration(mediaInfoState.totalDuration)} (${mediaInfoState.segmentCount} segments)`;
+  if (info.totalDuration > 0) {
+    mediaDurationEl.textContent = StegoTime.formatDuration(info.totalDuration);
+    videoInfoEl.textContent = `Duration: ${StegoTime.formatDuration(info.totalDuration)} (${info.segmentCount} segments)`;
   } else {
     mediaDurationEl.textContent = '--:--';
   }
 
-  // 5. Segments
-  if (mediaInfoState.segmentCount > 0) {
-    const avg =
-      mediaInfoState.avgSegmentDuration > 0
-        ? ` (~${mediaInfoState.avgSegmentDuration.toFixed(1)}s/seg)`
-        : '';
-    mediaSegmentsEl.textContent = `${mediaInfoState.segmentCount}${avg}`;
+  if (info.segmentCount > 0) {
+    const avg = info.avgSegmentDuration > 0 ? ` (~${info.avgSegmentDuration.toFixed(1)}s/seg)` : '';
+    mediaSegmentsEl.textContent = `${info.segmentCount}${avg}`;
   } else {
     mediaSegmentsEl.textContent = '--';
   }
 
-  // 6. Estimated file size
-  updateEstimatedSizes();
+  updateEstimatedSizes(info);
 }
 
-function updateEstimatedSizes() {
-  const bps = mediaInfoState.bitrate || selectedVariant?.bandwidth || 0;
-  if (bps > 0 && mediaInfoState.totalDuration > 0) {
-    const fullBytes = (bps / 8) * mediaInfoState.totalDuration;
-    let clipSec = mediaInfoState.totalDuration;
+function updateEstimatedSizes(info = PlayerController.getMediaInfo()) {
+  const bps = info.bitrate || selectedVariant?.bandwidth || 0;
+  if (bps > 0 && info.totalDuration > 0) {
+    const fullBytes = (bps / 8) * info.totalDuration;
+    let clipSec = info.totalDuration;
     if (!fullVideoToggle.checked) {
       try {
         const s = StegoTime.parseTimestamp(startTimeInput.value);
@@ -177,7 +156,6 @@ function updateEstimatedSizes() {
   }
 }
 
-// Update stream dropdown option text when resolution is discovered
 function updateStreamOptionWithResolution(streamUrl, width, height) {
   if (!streamUrl || !width || !height) return;
   const label = getHeightLabel(height);
@@ -192,40 +170,9 @@ function updateStreamOptionWithResolution(streamUrl, width, height) {
   }
 }
 
-// Video dimensions listener
-function onVideoDimensionsChanged() {
-  if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
-    mediaInfoState.width = videoEl.videoWidth;
-    mediaInfoState.height = videoEl.videoHeight;
-    renderMediaDetails();
-    updateDefaultFilename();
-    updateStreamOptionWithResolution(selectedStream?.url, videoEl.videoWidth, videoEl.videoHeight);
-  }
-}
-
-videoEl.addEventListener('loadedmetadata', onVideoDimensionsChanged);
-videoEl.addEventListener('resize', onVideoDimensionsChanged);
-videoEl.addEventListener('canplay', onVideoDimensionsChanged);
-videoEl.addEventListener('playing', onVideoDimensionsChanged);
-
-// Check if running in full-page mode
-const urlParams = new URLSearchParams(window.location.search);
-const isFullPageMode = urlParams.get('mode') === 'full' || window.innerWidth > 500;
-const tabIdFromUrl = urlParams.get('tabId') ? parseInt(urlParams.get('tabId'), 10) : null;
-const shouldAutoDownload =
-  urlParams.get('download') === '1' || urlParams.get('autoDownload') === 'true';
-
-if (isFullPageMode) {
-  document.body.classList.add('full-page');
-  if (btnOpenTab) {
-    btnOpenTab.style.display = 'none';
-  }
-}
-
 function savePopupState() {
   if (!currentTabId) return;
-  const state = {
-    tabId: currentTabId,
+  StateManager.saveState(currentTabId, {
     streamUrl: selectedStream?.url || '',
     variantUrl: selectedVariant?.url || '',
     startTime: startTimeInput?.value || '',
@@ -233,14 +180,247 @@ function savePopupState() {
     isFull: fullVideoToggle?.checked || false,
     filename: filenameInput?.value || '',
     userCustomBaseName: userCustomBaseName || '',
-    format: formatSelect?.value || 'mp4',
-    timestamp: Date.now()
-  };
-  chrome.storage.local.set({
-    [`stego_popup_state_${currentTabId}`]: state
+    format: formatSelect?.value || 'mp4'
   });
 }
 
+function updateClipDuration() {
+  try {
+    const startSec = StegoTime.parseTimestamp(startTimeInput.value);
+    const endSec = StegoTime.parseTimestamp(endTimeInput.value);
+    const diff = Math.max(0, endSec - startSec);
+    const bps = PlayerController.getMediaInfo().bitrate || selectedVariant?.bandwidth || 0;
+    if (bps > 0) {
+      const clipBytes = (bps / 8) * diff;
+      clipDurationText.textContent = `Clip: ${StegoTime.formatDuration(diff)} (~${StegoTime.formatBytes(clipBytes)})`;
+    } else {
+      clipDurationText.textContent = `Clip: ${StegoTime.formatDuration(diff)}`;
+    }
+  } catch {
+    clipDurationText.textContent = 'Clip: --:--';
+  }
+}
+
+async function resolveDocumentTitle(targetTabId) {
+  if (!targetTabId) return null;
+  try {
+    const tab = await chrome.tabs.get(targetTabId);
+    if (tab?.title) {
+      return StegoTime.cleanTitleForFilename(tab.title);
+    }
+  } catch {}
+  return null;
+}
+
+function updateFilenameTimestamps() {
+  const base = userCustomBaseName || currentDefaultBaseName || 'video_clip';
+  const isFull = fullVideoToggle.checked;
+  const startStr = startTimeInput.value || '00:00';
+  const endStr = endTimeInput.value || '00:00';
+  filenameInput.value = StegoTime.buildClipFilename(base, startStr, endStr, isFull, '-');
+}
+
+function updateDefaultFilename() {
+  if (!currentDefaultBaseName || StegoTime.isGenericBase(currentDefaultBaseName)) {
+    try {
+      const targetUrl = selectedVariant?.url || selectedStream?.url || '';
+      const parsedUrl = new URL(targetUrl);
+      const parts = parsedUrl.pathname.split('/').filter(Boolean);
+      const base = parts.pop() || 'video';
+      let cleanBase = base.replace(/\.m3u8$/i, '');
+      if (cleanBase === 'master' || cleanBase === 'index' || cleanBase.startsWith('index-')) {
+        const prev = parts.pop();
+        if (prev) cleanBase = `${prev}-${cleanBase}`;
+      }
+      if (!currentDefaultBaseName) currentDefaultBaseName = cleanBase;
+    } catch {
+      if (!currentDefaultBaseName) currentDefaultBaseName = 'video_clip';
+    }
+  }
+  updateFilenameTimestamps();
+}
+
+async function loadVariant(variant) {
+  selectedVariant = variant;
+  PlayerController.loadVariant(variant);
+
+  try {
+    const subResp = await fetch(variant.url);
+    const subText = await subResp.text();
+    currentTimeline = StegoParser.PlaylistParser.parseManifest(subText, variant.url);
+    const totalSec = currentTimeline.totalDuration;
+
+    PlayerController.mediaInfo.totalDuration = totalSec;
+    PlayerController.mediaInfo.segmentCount = currentTimeline.segments.length;
+    PlayerController.mediaInfo.avgSegmentDuration =
+      currentTimeline.segments.length > 0 ? totalSec / currentTimeline.segments.length : 0;
+    renderMediaDetails();
+
+    if (!startTimeInput.value || startTimeInput.value === '00:00') {
+      startTimeInput.value = '00:00';
+    }
+    endTimeInput.value = StegoTime.formatDuration(totalSec);
+    updateClipDuration();
+    updateDefaultFilename();
+  } catch (err) {
+    videoInfoEl.textContent = `Manifest error: ${err.message}`;
+    UiFeedback.error(`Failed loading variant playlist: ${err.message}`);
+  }
+}
+
+async function loadStream(stream) {
+  selectedStream = stream;
+  videoInfoEl.textContent = 'Discovering media qualities...';
+
+  const msgType =
+    typeof StegoConstants !== 'undefined'
+      ? StegoConstants.MSG_TYPES.APPLY_DNR_RULES
+      : 'APPLY_DNR_RULES';
+  chrome.runtime.sendMessage({
+    type: msgType,
+    headers: stream.headers
+  });
+
+  try {
+    let manifestUrl = stream.url;
+    if (
+      stream.url.includes('index-f') ||
+      (!stream.url.includes('master') && stream.url.includes('index'))
+    ) {
+      const masterCandidate = currentStreams.find((s) => s.url.includes('master'));
+      if (masterCandidate) manifestUrl = masterCandidate.url;
+    }
+
+    const masterResp = await fetch(manifestUrl);
+    const masterText = await masterResp.text();
+    currentVariants = StegoParser.PlaylistParser.parseVariants(masterText, manifestUrl);
+
+    qualitySelect.innerHTML = '';
+    if (currentVariants.length > 1) {
+      qualitySection.style.display = 'block';
+      currentVariants.forEach((v) => {
+        const opt = document.createElement('option');
+        opt.value = v.url;
+        opt.textContent = v.label;
+        qualitySelect.appendChild(opt);
+      });
+    } else {
+      qualitySection.style.display = 'none';
+    }
+
+    await loadVariant(currentVariants[0]);
+  } catch (err) {
+    videoInfoEl.textContent = `Failed fetching stream: ${err.message}`;
+    UiFeedback.error(`Failed to load stream: ${err.message}`);
+  }
+}
+
+async function executeDownload() {
+  if (!selectedVariant || !currentTimeline) {
+    UiFeedback.error('Please select a valid stream and quality first.');
+    return;
+  }
+
+  let startSec = 0;
+  let endSec = currentTimeline.totalDuration;
+
+  if (!fullVideoToggle.checked) {
+    try {
+      startSec = StegoTime.parseTimestamp(startTimeInput.value);
+      endSec = StegoTime.parseTimestamp(endTimeInput.value);
+    } catch (e) {
+      UiFeedback.error(`Invalid time input: ${e.message}`);
+      return;
+    }
+  }
+
+  if (startSec >= endSec) {
+    UiFeedback.warning('Start time must be less than end time.');
+    return;
+  }
+
+  const overlapping = currentTimeline.getOverlappingSegments(startSec, endSec);
+  if (overlapping.length === 0) {
+    UiFeedback.warning('No video segments found in the specified range.');
+    return;
+  }
+
+  btnDownload.disabled = true;
+  btnCancel.style.display = 'block';
+  progressContainer.style.display = 'block';
+  downloadProgress.value = 0;
+  progressStatus.textContent = `Downloading 0/${overlapping.length} segments (0%)...`;
+
+  activeAbortController = new AbortController();
+  const concurrency =
+    typeof StegoConstants !== 'undefined' ? StegoConstants.CONFIG.DEFAULT_CONCURRENCY : 6;
+  const downloader = new StegoDownloader.SegmentDownloader({ concurrency });
+  const fmt = formatSelect ? formatSelect.value : 'mp4';
+
+  try {
+    const mergedBytes = await downloader.downloadSegments(
+      overlapping,
+      selectedStream.headers,
+      (progress) => {
+        downloadProgress.value = progress.percent;
+        const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
+        const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
+        progressStatus.textContent = `Downloaded ${progress.completed}/${progress.total} segments (${progress.percent}%) • ${mb} MB (${speedMb} MB/s)`;
+      },
+      activeAbortController.signal
+    );
+
+    progressStatus.textContent = fmt === 'mp4' ? 'Transmuxing to MP4...' : 'Saving file...';
+    const base = filenameInput.value.trim().replace(/\.(mp4|ts)$/i, '') || 'video_clip';
+    const filename = `${base}.${fmt}`;
+    const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
+    await downloader.saveToFile(mergedBytes, filename, fmt, clipDuration);
+    progressStatus.textContent = `✅ Saved ${filename} successfully!`;
+    UiFeedback.success(`Saved ${filename} successfully!`);
+  } catch (err) {
+    if (activeAbortController?.signal.aborted) {
+      progressStatus.textContent = 'Download cancelled.';
+      UiFeedback.info('Download cancelled.');
+    } else {
+      progressStatus.textContent = `❌ Error: ${err.message}`;
+      UiFeedback.error(`Download error: ${err.message}`);
+    }
+  } finally {
+    btnDownload.disabled = false;
+    btnCancel.style.display = 'none';
+    activeAbortController = null;
+  }
+}
+
+function formatStreamTitle(stream, idx) {
+  try {
+    const u = new URL(stream.url);
+    const parts = u.pathname.split('/').filter(Boolean);
+    const file = parts.pop() || 'master.m3u8';
+
+    if (file.includes('master') || stream.url.includes('urlset/master')) {
+      return `[Master] Multi-Quality Stream • ${u.hostname}`;
+    }
+
+    const fc2 = file.match(/index-f([1-4])-/i);
+    if (fc2) {
+      const tierMap = { 1: '1080p Full HD', 2: '720p HD', 3: '480p SD', 4: '360p Low' };
+      const quality = tierMap[fc2[1]] || `F${fc2[1]}`;
+      return `[${quality}] ${u.hostname} • ${file}`;
+    }
+
+    const resMatch = file.match(/(2160|1440|1080|720|480|360)p/i);
+    if (resMatch) {
+      return `[${resMatch[1]}p] ${u.hostname} • ${file}`;
+    }
+
+    return `[${idx + 1}] ${u.hostname} • ${file}`;
+  } catch {
+    return `Stream ${idx + 1}`;
+  }
+}
+
+// Event Listeners Wiring
 if (btnOpenTab) {
   btnOpenTab.addEventListener('click', () => {
     const tabParam = currentTabId ? `&tabId=${currentTabId}` : '';
@@ -252,12 +432,13 @@ if (btnOpenTab) {
 
 if (btnClearStreams) {
   btnClearStreams.addEventListener('click', async () => {
-    await chrome.runtime.sendMessage({ type: 'CLEAR_STREAMS', tabId: currentTabId });
+    const msgType =
+      typeof StegoConstants !== 'undefined'
+        ? StegoConstants.MSG_TYPES.CLEAR_STREAMS
+        : 'CLEAR_STREAMS';
+    await chrome.runtime.sendMessage({ type: msgType, tabId: currentTabId });
     if (currentTabId) {
-      await chrome.storage.local.remove([
-        `stego_popup_state_${currentTabId}`,
-        `stego_download_${currentTabId}`
-      ]);
+      await StateManager.clearState(currentTabId);
     }
     currentStreams = [];
     selectedStream = null;
@@ -268,35 +449,13 @@ if (btnClearStreams) {
     streamSelect.innerHTML = '<option value="">No M3U8 streams detected on this tab</option>';
     videoInfoEl.textContent = 'Play a video on the page to intercept its stream.';
     btnDownload.disabled = true;
-    resetMediaInfo();
-    if (hlsInstance) {
-      hlsInstance.destroy();
-      hlsInstance = null;
-    }
-    videoEl.src = '';
+    PlayerController.destroy();
     startTimeInput.value = '00:00';
     endTimeInput.value = '00:00';
     clipDurationText.textContent = 'Clip: --:--';
     filenameInput.value = 'video_clip';
+    UiFeedback.info('Cleared captured streams for this tab.');
   });
-}
-
-// Update clip duration display
-function updateClipDuration() {
-  try {
-    const startSec = StegoTime.parseTimestamp(startTimeInput.value);
-    const endSec = StegoTime.parseTimestamp(endTimeInput.value);
-    const diff = Math.max(0, endSec - startSec);
-    const bps = mediaInfoState.bitrate || selectedVariant?.bandwidth || 0;
-    if (bps > 0) {
-      const clipBytes = (bps / 8) * diff;
-      clipDurationText.textContent = `Clip: ${StegoTime.formatDuration(diff)} (~${StegoTime.formatBytes(clipBytes)})`;
-    } else {
-      clipDurationText.textContent = `Clip: ${StegoTime.formatDuration(diff)}`;
-    }
-  } catch {
-    clipDurationText.textContent = 'Clip: --:--';
-  }
 }
 
 startTimeInput.addEventListener('input', () => {
@@ -338,21 +497,19 @@ endTimeInput.addEventListener('blur', () => {
 });
 
 btnSetStart.addEventListener('click', () => {
-  if (videoEl && !isNaN(videoEl.currentTime)) {
-    startTimeInput.value = StegoTime.formatDuration(videoEl.currentTime);
-    updateClipDuration();
-    updateFilenameTimestamps();
-    savePopupState();
-  }
+  const cur = PlayerController.getCurrentTime();
+  startTimeInput.value = StegoTime.formatDuration(cur);
+  updateClipDuration();
+  updateFilenameTimestamps();
+  savePopupState();
 });
 
 btnSetEnd.addEventListener('click', () => {
-  if (videoEl && !isNaN(videoEl.currentTime)) {
-    endTimeInput.value = StegoTime.formatDuration(videoEl.currentTime);
-    updateClipDuration();
-    updateFilenameTimestamps();
-    savePopupState();
-  }
+  const cur = PlayerController.getCurrentTime();
+  endTimeInput.value = StegoTime.formatDuration(cur);
+  updateClipDuration();
+  updateFilenameTimestamps();
+  savePopupState();
 });
 
 fullVideoToggle.addEventListener('change', () => {
@@ -403,260 +560,14 @@ if (formatSelect) {
   });
 }
 
-function isGenericBase(name) {
-  return StegoTime.isGenericBase(name);
-}
-
-// Resolve base name directly from tab document.title
-async function resolveDocumentTitle(targetTabId) {
-  if (!targetTabId) return null;
-  try {
-    const tab = await chrome.tabs.get(targetTabId);
-    if (tab?.title) {
-      return StegoTime.cleanTitleForFilename(tab.title);
-    }
-  } catch {}
-  return null;
-}
-
-// Dynamically update the filename based on current timestamps without .mp4
-function updateFilenameTimestamps() {
-  const base = userCustomBaseName || currentDefaultBaseName || 'video_clip';
-  const isFull = fullVideoToggle.checked;
-  const startStr = startTimeInput.value || '00:00';
-  const endStr = endTimeInput.value || '00:00';
-
-  filenameInput.value = StegoTime.buildClipFilename(base, startStr, endStr, isFull, '-');
-}
-
-// Generate sensible default output filename base (without extension)
-function updateDefaultFilename() {
-  if (!currentDefaultBaseName || isGenericBase(currentDefaultBaseName)) {
-    try {
-      const targetUrl = selectedVariant?.url || selectedStream?.url || '';
-      const parsedUrl = new URL(targetUrl);
-      const parts = parsedUrl.pathname.split('/').filter(Boolean);
-      const base = parts.pop() || 'video';
-      let cleanBase = base.replace(/\.m3u8$/i, '');
-      if (cleanBase === 'master' || cleanBase === 'index' || cleanBase.startsWith('index-')) {
-        const prev = parts.pop();
-        if (prev) cleanBase = `${prev}-${cleanBase}`;
-      }
-      if (!currentDefaultBaseName) {
-        currentDefaultBaseName = cleanBase;
-      }
-    } catch {
-      if (!currentDefaultBaseName) {
-        currentDefaultBaseName = 'video_clip';
-      }
-    }
-  }
-
-  updateFilenameTimestamps();
-}
-
-// Load media variant playlist (resolution / quality level)
-async function loadVariant(variant) {
-  resetMediaInfo();
-  selectedVariant = variant;
-  if (variant.height) mediaInfoState.height = variant.height;
-  if (variant.resolution) {
-    const [w, h] = variant.resolution.split('x').map(Number);
-    if (w && h) {
-      mediaInfoState.width = w;
-      mediaInfoState.height = h;
-    }
-  }
-  if (variant.bandwidth) mediaInfoState.bitrate = variant.bandwidth;
-  if (variant.codecs) {
-    const [v, a] = variant.codecs.split(',');
-    if (v) mediaInfoState.videoCodec = v.trim();
-    if (a) mediaInfoState.audioCodec = a.trim();
-  }
-  renderMediaDetails();
-  videoInfoEl.textContent = 'Loading manifest...';
-  currentTimeline = null;
-
-  // 1. Attach to preview player
-  if (hlsInstance) {
-    hlsInstance.destroy();
-    hlsInstance = null;
-  }
-
-  if (Hls.isSupported()) {
-    hlsInstance = new Hls({
-      fLoader: StegoFragmentLoader,
-      enableWorker: true,
-      lowLatencyMode: false
-    });
-
-    hlsInstance.loadSource(variant.url);
-    hlsInstance.attachMedia(videoEl);
-
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-      videoInfoEl.textContent = 'Preview ready';
-      if (data.levels && data.levels[0]) {
-        const lvl = data.levels[0];
-        if (lvl.width && lvl.height) {
-          mediaInfoState.width = lvl.width;
-          mediaInfoState.height = lvl.height;
-        }
-        if (lvl.bitrate && !mediaInfoState.bitrate) {
-          mediaInfoState.bitrate = lvl.bitrate;
-        }
-        renderMediaDetails();
-      }
-    });
-
-    hlsInstance.on(Hls.Events.BUFFER_CREATED, (event, data) => {
-      if (data.tracks) {
-        if (data.tracks.video?.metadata) {
-          mediaInfoState.width = data.tracks.video.metadata.width || mediaInfoState.width;
-          mediaInfoState.height = data.tracks.video.metadata.height || mediaInfoState.height;
-        }
-        if (data.tracks.video?.codec) {
-          mediaInfoState.videoCodec = data.tracks.video.codec;
-        }
-        if (data.tracks.audio?.codec) {
-          mediaInfoState.audioCodec = data.tracks.audio.codec;
-        }
-        renderMediaDetails();
-        updateDefaultFilename();
-      }
-    });
-
-    hlsInstance.on(Hls.Events.LEVEL_LOADED, (event, data) => {
-      if (data.details) {
-        if (data.details.totalduration) {
-          mediaInfoState.totalDuration = data.details.totalduration;
-        }
-        if (data.details.fragments) {
-          mediaInfoState.segmentCount = data.details.fragments.length;
-          mediaInfoState.avgSegmentDuration =
-            data.details.targetduration ||
-            data.details.totalduration / data.details.fragments.length;
-        }
-      }
-      const lvl = hlsInstance.levels[data.level];
-      if (lvl) {
-        if (lvl.bitrate && !mediaInfoState.bitrate) mediaInfoState.bitrate = lvl.bitrate;
-        if (lvl.width && lvl.height) {
-          mediaInfoState.width = lvl.width;
-          mediaInfoState.height = lvl.height;
-        }
-      }
-      renderMediaDetails();
-    });
-
-    hlsInstance.on(Hls.Events.FRAG_LOADED, (event, data) => {
-      if (data.frag && data.frag.stats && data.frag.duration > 0) {
-        const fragBytes = data.frag.stats.total;
-        const dur = data.frag.duration;
-        if (fragBytes > 0 && dur > 0) {
-          const measuredBps = Math.round((fragBytes * 8) / dur);
-          if (!mediaInfoState.bitrate || mediaInfoState.bitrate === 0) {
-            mediaInfoState.bitrate = measuredBps;
-            renderMediaDetails();
-          }
-        }
-      }
-    });
-
-    hlsInstance.on(Hls.Events.ERROR, (event, data) => {
-      if (data.fatal) {
-        console.warn('HLS preview error:', data);
-      }
-    });
-  } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-    videoEl.src = variant.url;
-  }
-
-  // 2. Parse sub-manifest timeline for clipping calculations
-  try {
-    const subResp = await fetch(variant.url);
-    const subText = await subResp.text();
-
-    currentTimeline = StegoParser.PlaylistParser.parseManifest(subText, variant.url);
-    const totalSec = currentTimeline.totalDuration;
-    mediaInfoState.totalDuration = totalSec;
-    mediaInfoState.segmentCount = currentTimeline.segments.length;
-    mediaInfoState.avgSegmentDuration =
-      currentTimeline.segments.length > 0 ? totalSec / currentTimeline.segments.length : 0;
-
-    renderMediaDetails();
-
-    if (!startTimeInput.value || startTimeInput.value === '00:00') {
-      startTimeInput.value = '00:00';
-    }
-    endTimeInput.value = StegoTime.formatDuration(totalSec);
-    updateClipDuration();
-    updateDefaultFilename();
-  } catch (err) {
-    videoInfoEl.textContent = `Manifest error: ${err.message}`;
-  }
-}
-
-// Load a stream: resolve master playlist variants and populate quality selector
-async function loadStream(stream) {
-  selectedStream = stream;
-  videoInfoEl.textContent = 'Discovering media qualities...';
-
-  // Apply DNR session rules to authenticate CDN requests
-  chrome.runtime.sendMessage({
-    type: 'APPLY_DNR_RULES',
-    headers: stream.headers
-  });
-
-  try {
-    let manifestUrl = stream.url;
-    // Check if a master playlist is available in currentStreams
-    if (
-      stream.url.includes('index-f') ||
-      (!stream.url.includes('master') && stream.url.includes('index'))
-    ) {
-      const masterCandidate = currentStreams.find((s) => s.url.includes('master'));
-      if (masterCandidate) {
-        manifestUrl = masterCandidate.url;
-      }
-    }
-
-    const masterResp = await fetch(manifestUrl);
-    const masterText = await masterResp.text();
-
-    currentVariants = StegoParser.PlaylistParser.parseVariants(masterText, manifestUrl);
-
-    // Setup Quality / Resolution dropdown
-    qualitySelect.innerHTML = '';
-    if (currentVariants.length > 1) {
-      qualitySection.style.display = 'block';
-      currentVariants.forEach((v) => {
-        const opt = document.createElement('option');
-        opt.value = v.url;
-        opt.textContent = v.label;
-        qualitySelect.appendChild(opt);
-      });
-    } else {
-      qualitySection.style.display = 'none';
-    }
-
-    // Default to highest quality variant
-    await loadVariant(currentVariants[0]);
-  } catch (err) {
-    videoInfoEl.textContent = `Failed fetching stream: ${err.message}`;
-  }
-}
-
 qualitySelect.addEventListener('change', () => {
   const chosenUrl = qualitySelect.value;
   const variant = currentVariants.find((v) => v.url === chosenUrl);
   if (variant) {
-    loadVariant(variant).then(() => {
-      savePopupState();
-    });
+    loadVariant(variant).then(() => savePopupState());
   }
 });
 
-// Download Button Handler
 btnDownload.addEventListener('click', async () => {
   if (!isFullPageMode) {
     savePopupState();
@@ -667,82 +578,8 @@ btnDownload.addEventListener('click', async () => {
     window.close();
     return;
   }
-
   await executeDownload();
 });
-
-async function executeDownload() {
-  if (!selectedVariant || !currentTimeline) {
-    alert('Please select a valid stream and quality first.');
-    return;
-  }
-
-  let startSec = 0;
-  let endSec = currentTimeline.totalDuration;
-
-  if (!fullVideoToggle.checked) {
-    try {
-      startSec = StegoTime.parseTimestamp(startTimeInput.value);
-      endSec = StegoTime.parseTimestamp(endTimeInput.value);
-    } catch (e) {
-      alert(`Invalid time input: ${e.message}`);
-      return;
-    }
-  }
-
-  if (startSec >= endSec) {
-    alert('Start time must be less than end time.');
-    return;
-  }
-
-  const overlapping = currentTimeline.getOverlappingSegments(startSec, endSec);
-  if (overlapping.length === 0) {
-    alert('No video segments found in the specified range.');
-    return;
-  }
-
-  // Update UI to downloading state
-  btnDownload.disabled = true;
-  btnCancel.style.display = 'block';
-  progressContainer.style.display = 'block';
-  downloadProgress.value = 0;
-  progressStatus.textContent = `Downloading 0/${overlapping.length} segments (0%)...`;
-
-  activeAbortController = new AbortController();
-  const downloader = new StegoDownloader.SegmentDownloader({ concurrency: 6 });
-  const fmt = formatSelect ? formatSelect.value : 'mp4';
-
-  try {
-    const mergedBytes = await downloader.downloadSegments(
-      overlapping,
-      selectedStream.headers,
-      (progress) => {
-        downloadProgress.value = progress.percent;
-        const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
-        const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
-        progressStatus.textContent = `Downloaded ${progress.completed}/${progress.total} segments (${progress.percent}%) • ${mb} MB (${speedMb} MB/s)`;
-      },
-      activeAbortController.signal
-    );
-
-    progressStatus.textContent = fmt === 'mp4' ? 'Transmuxing to MP4...' : 'Saving file...';
-    const base = filenameInput.value.trim().replace(/\.(mp4|ts)$/i, '') || 'video_clip';
-    const filename = `${base}.${fmt}`;
-    const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
-    await downloader.saveToFile(mergedBytes, filename, fmt, clipDuration);
-    progressStatus.textContent = `✅ Saved ${filename} successfully!`;
-  } catch (err) {
-    if (activeAbortController?.signal.aborted) {
-      progressStatus.textContent = 'Download cancelled.';
-    } else {
-      progressStatus.textContent = `❌ Error: ${err.message}`;
-    }
-  } finally {
-    btnDownload.disabled = false;
-    btnCancel.style.display = 'none';
-    activeAbortController = null;
-  }
-}
 
 btnCancel.addEventListener('click', () => {
   if (activeAbortController) {
@@ -754,43 +591,25 @@ streamSelect.addEventListener('change', () => {
   const selectedUrl = streamSelect.value;
   const stream = currentStreams.find((s) => s.url === selectedUrl);
   if (stream) {
-    loadStream(stream).then(() => {
-      savePopupState();
-    });
+    loadStream(stream).then(() => savePopupState());
   }
 });
 
-// Format informative label for each stream in the selector
-function formatStreamTitle(stream, idx) {
-  try {
-    const u = new URL(stream.url);
-    const parts = u.pathname.split('/').filter(Boolean);
-    const file = parts.pop() || 'master.m3u8';
-
-    if (file.includes('master') || stream.url.includes('urlset/master')) {
-      return `[Master] Multi-Quality Stream • ${u.hostname}`;
-    }
-
-    const fc2 = file.match(/index-f([1-4])-/i);
-    if (fc2) {
-      const tierMap = { 1: '1080p Full HD', 2: '720p HD', 3: '480p SD', 4: '360p Low' };
-      const quality = tierMap[fc2[1]] || `F${fc2[1]}`;
-      return `[${quality}] ${u.hostname} • ${file}`;
-    }
-
-    const resMatch = file.match(/(2160|1440|1080|720|480|360)p/i);
-    if (resMatch) {
-      return `[${resMatch[1]}p] ${u.hostname} • ${file}`;
-    }
-
-    return `[${idx + 1}] ${u.hostname} • ${file}`;
-  } catch {
-    return `Stream ${idx + 1}`;
-  }
-}
-
-// Initialize popup on open
+// Bootstrap Popup
 document.addEventListener('DOMContentLoaded', async () => {
+  PlayerController.init(videoEl, {
+    onMediaInfoChanged: (info) => {
+      renderMediaDetails(info);
+      updateDefaultFilename();
+      if (selectedStream && info.width && info.height) {
+        updateStreamOptionWithResolution(selectedStream.url, info.width, info.height);
+      }
+    },
+    onStatusChanged: (status) => {
+      videoInfoEl.textContent = status;
+    }
+  });
+
   let targetId = tabIdFromUrl;
 
   if (!targetId) {
@@ -805,7 +624,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Resolve base name from tab document.title
   if (targetId && !currentDefaultBaseName) {
     resolveDocumentTitle(targetId).then((code) => {
       if (code) {
@@ -815,21 +633,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  chrome.runtime.sendMessage({ type: 'GET_STREAMS', tabId: targetId }, async (response) => {
+  const getStreamsType =
+    typeof StegoConstants !== 'undefined' ? StegoConstants.MSG_TYPES.GET_STREAMS : 'GET_STREAMS';
+  chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, async (response) => {
     currentStreams = response?.streams || [];
     currentTabId = response?.tabId || targetId;
     streamCountBadge.textContent = `${currentStreams.length} stream${currentStreams.length === 1 ? '' : 's'}`;
 
-    if (!currentDefaultBaseName || isGenericBase(currentDefaultBaseName)) {
+    if (!currentDefaultBaseName || StegoTime.isGenericBase(currentDefaultBaseName)) {
       if (response?.tabTitle) {
         const detected = StegoTime.cleanTitleForFilename(response.tabTitle);
         if (detected) currentDefaultBaseName = detected;
       }
-      if ((!currentDefaultBaseName || isGenericBase(currentDefaultBaseName)) && currentTabId) {
+      if (
+        (!currentDefaultBaseName || StegoTime.isGenericBase(currentDefaultBaseName)) &&
+        currentTabId
+      ) {
         const code = await resolveDocumentTitle(currentTabId);
         if (code) currentDefaultBaseName = code;
       }
-      if (currentDefaultBaseName && !isGenericBase(currentDefaultBaseName)) {
+      if (currentDefaultBaseName && !StegoTime.isGenericBase(currentDefaultBaseName)) {
         updateFilenameTimestamps();
       }
     }
@@ -846,7 +669,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // Prioritize master playlists first
     currentStreams.sort((a, b) => {
       const aIsMaster = a.url.includes('master') ? 1 : 0;
       const bIsMaster = b.url.includes('master') ? 1 : 0;
@@ -861,10 +683,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       streamSelect.appendChild(opt);
     });
 
-    // Check if we have saved state for this tab
-    const stateKey = `stego_popup_state_${currentTabId}`;
-    const saved = await chrome.storage.local.get([stateKey]);
-    const state = saved[stateKey];
+    const state = await StateManager.loadState(currentTabId);
 
     let targetStream = currentStreams[0];
     if (state?.streamUrl) {
@@ -877,7 +696,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await loadStream(targetStream);
 
-    // If state had a specific variant selected, restore it
     if (state?.variantUrl && currentVariants.length > 1) {
       const matchedVariant = currentVariants.find((v) => v.url === state.variantUrl);
       if (matchedVariant) {
@@ -886,7 +704,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // Restore timestamps, filename, format, and full video toggle
     if (state) {
       if (state.startTime) startTimeInput.value = state.startTime;
       if (state.endTime) endTimeInput.value = state.endTime;

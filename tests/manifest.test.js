@@ -87,4 +87,8 @@ test('popup.html contains clear streams and full page studio buttons', () => {
   const html = fs.readFileSync(popupHtmlPath, 'utf8');
   assert.ok(html.includes('id="btnClearStreams"'), 'Must have btnClearStreams');
   assert.ok(html.includes('id="btnOpenTab"'), 'Must have btnOpenTab');
+  assert.ok(html.includes('id="toastContainer"'), 'Must have toastContainer');
+  assert.ok(html.includes('ui-feedback.js'), 'Must include ui-feedback.js');
+  assert.ok(html.includes('player-controller.js'), 'Must include player-controller.js');
+  assert.ok(html.includes('state-manager.js'), 'Must include state-manager.js');
 });
