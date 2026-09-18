@@ -8,6 +8,7 @@ test('StegoConstants provides expected message types and storage keys', () => {
   assert.equal(MSG_TYPES.APPLY_DNR_RULES, 'APPLY_DNR_RULES');
   assert.equal(MSG_TYPES.TAB_MEDIA_SEEK, 'TAB_MEDIA_SEEK');
   assert.equal(MSG_TYPES.GET_PAGE_MEDIA_TIME, 'GET_PAGE_MEDIA_TIME');
+  assert.equal(MSG_TYPES.STREAM_DETECTED, 'STREAM_DETECTED');
   assert.equal(STORAGE_KEYS.TAB_STREAMS, 'tabStreams');
   assert.equal(STORAGE_KEYS.POPUP_STATE_PREFIX, 'stego_popup_state_');
 });

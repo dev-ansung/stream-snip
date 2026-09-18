@@ -603,8 +603,20 @@ if (syncTabSeekToggle) {
   });
 }
 
-// Synchronize preview player when seek occurs on the host webpage player
+// Synchronize preview player when seek occurs on the host webpage player, or reload on STREAM_DETECTED
 chrome.runtime.onMessage.addListener((message, sender) => {
+  const isStreamDetectedMsg =
+    message?.type === 'STREAM_DETECTED' ||
+    (typeof StegoConstants !== 'undefined' &&
+      message?.type === StegoConstants.MSG_TYPES.STREAM_DETECTED);
+
+  if (isStreamDetectedMsg) {
+    if (!currentTabId || message.tabId === currentTabId || currentStreams.length === 0) {
+      requestStreams(currentTabId || message.tabId);
+    }
+    return;
+  }
+
   const isSeekMsg =
     message?.type === 'TAB_MEDIA_SEEK' ||
     (typeof StegoConstants !== 'undefined' &&
@@ -626,48 +638,14 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   }
 });
 
-// Bootstrap Popup
-document.addEventListener('DOMContentLoaded', async () => {
-  PlayerController.init(videoEl, {
-    onMediaInfoChanged: (info) => {
-      renderMediaDetails(info);
-      updateDefaultFilename();
-      if (selectedStream && info.width && info.height) {
-        updateStreamOptionWithResolution(selectedStream.url, info.width, info.height);
-      }
-    },
-    onStatusChanged: (status) => {
-      videoInfoEl.textContent = status;
-    }
-  });
-
-  let targetId = tabIdFromUrl;
-
-  if (!targetId) {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    targetId = tab?.id || null;
-    if (tab?.title) {
-      const detected = StegoTime.cleanTitleForFilename(tab.title);
-      if (detected) {
-        currentDefaultBaseName = detected;
-        updateFilenameTimestamps();
-      }
-    }
-  }
-
-  if (targetId && !currentDefaultBaseName) {
-    resolveDocumentTitle(targetId).then((code) => {
-      if (code) {
-        currentDefaultBaseName = code;
-        updateFilenameTimestamps();
-      }
-    });
-  }
-
+async function requestStreams(targetId) {
   const getStreamsType =
     typeof StegoConstants !== 'undefined' ? StegoConstants.MSG_TYPES.GET_STREAMS : 'GET_STREAMS';
   chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, async (response) => {
-    currentStreams = response?.streams || [];
+    const received = response?.streams || [];
+    if (received.length > 0 || currentStreams.length === 0) {
+      currentStreams = received;
+    }
     currentTabId = response?.tabId || targetId;
     streamCountBadge.textContent = `${currentStreams.length} stream${currentStreams.length === 1 ? '' : 's'}`;
 
@@ -785,4 +763,52 @@ document.addEventListener('DOMContentLoaded', async () => {
       await executeDownload();
     }
   });
+}
+
+// Bootstrap Popup
+document.addEventListener('DOMContentLoaded', async () => {
+  PlayerController.init(videoEl, {
+    onMediaInfoChanged: (info) => {
+      renderMediaDetails(info);
+      updateDefaultFilename();
+      if (selectedStream && info.width && info.height) {
+        updateStreamOptionWithResolution(selectedStream.url, info.width, info.height);
+      }
+    },
+    onStatusChanged: (status) => {
+      videoInfoEl.textContent = status;
+    }
+  });
+
+  let targetId = tabIdFromUrl;
+
+  if (!targetId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetId = tab?.id || null;
+    if (tab?.title) {
+      const detected = StegoTime.cleanTitleForFilename(tab.title);
+      if (detected) {
+        currentDefaultBaseName = detected;
+        updateFilenameTimestamps();
+      }
+    }
+  }
+
+  if (targetId && !currentDefaultBaseName) {
+    resolveDocumentTitle(targetId).then((code) => {
+      if (code) {
+        currentDefaultBaseName = code;
+        updateFilenameTimestamps();
+      }
+    });
+  }
+
+  requestStreams(targetId);
+
+  // If streams are still empty, retry once after 1200ms in case video player was still initializing
+  setTimeout(() => {
+    if (currentStreams.length === 0) {
+      requestStreams(targetId);
+    }
+  }, 1200);
 });

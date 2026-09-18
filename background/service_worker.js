@@ -4,9 +4,20 @@
  */
 
 try {
-  importScripts('../lib/constants.js');
+  importScripts('/lib/constants.js');
 } catch {
-  // Ignored in non-worker environments (e.g. tests)
+  try {
+    importScripts('../lib/constants.js');
+  } catch {
+    // Ignored in non-worker environments (e.g. tests)
+  }
+}
+
+function getPopupStateKeySafe(tabId) {
+  if (typeof StegoConstants !== 'undefined' && StegoConstants.getPopupStateKey) {
+    return StegoConstants.getPopupStateKey(tabId);
+  }
+  return `stego_popup_state_${tabId}`;
 }
 
 const tabStreams = new Map();
@@ -85,8 +96,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
-// Clean up captured streams, badge, and persisted popup state when page navigates/refreshes
-chrome.webNavigation.onCommitted.addListener(async (details) => {
+// Clean up captured streams, badge, and persisted popup state on top-level navigation start
+chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (details.frameId === 0) {
     const { tabId } = details;
     tabStreams.delete(tabId);
@@ -95,10 +106,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
       chrome.action.setBadgeText({ tabId, text: '' });
     } catch {}
     try {
-      const stateKey =
-        typeof StegoConstants !== 'undefined'
-          ? StegoConstants.getPopupStateKey(tabId)
-          : `stego_popup_state_${tabId}`;
+      const stateKey = getPopupStateKeySafe(tabId);
       await chrome.storage.local.remove([stateKey]);
     } catch {}
     await persistState();
@@ -110,10 +118,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   tabStreams.delete(tabId);
   tabMetadata.delete(tabId);
   try {
-    const stateKey =
-      typeof StegoConstants !== 'undefined'
-        ? StegoConstants.getPopupStateKey(tabId)
-        : `stego_popup_state_${tabId}`;
+    const stateKey = getPopupStateKeySafe(tabId);
     await chrome.storage.local.remove([stateKey]);
   } catch {}
   await persistState();
@@ -157,6 +162,21 @@ chrome.webRequest.onSendHeaders.addListener(
       // Update badge on extension icon
       chrome.action.setBadgeText({ tabId, text: String(streams.length) });
       chrome.action.setBadgeBackgroundColor({ tabId, color: '#3B82F6' });
+
+      // Notify open popup if listening
+      try {
+        const streamDetectedType =
+          typeof StegoConstants !== 'undefined'
+            ? StegoConstants.MSG_TYPES.STREAM_DETECTED
+            : 'STREAM_DETECTED';
+        chrome.runtime
+          .sendMessage({
+            type: streamDetectedType,
+            tabId,
+            streamUrl: url
+          })
+          .catch(() => {});
+      } catch {}
     }
   },
   { urls: ['<all_urls>'] },
@@ -171,9 +191,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         await loadPersistedState();
       }
 
-      const tabId = request.tabId;
-      const streams = tabId ? tabStreams.get(tabId) || [] : [];
-      const meta = tabId ? tabMetadata.get(tabId) : null;
+      let tabId = request.tabId || lastActiveMediaTabId;
+      let streams = tabId ? tabStreams.get(tabId) || [] : [];
+      let meta = tabId ? tabMetadata.get(tabId) : null;
+
+      // Robust fallback: if requested tab has no streams, check lastActiveMediaTabId
+      if (streams.length === 0 && lastActiveMediaTabId && lastActiveMediaTabId !== tabId) {
+        const fallbackStreams = tabStreams.get(lastActiveMediaTabId) || [];
+        if (fallbackStreams.length > 0) {
+          tabId = lastActiveMediaTabId;
+          streams = fallbackStreams;
+          meta = tabMetadata.get(tabId);
+        }
+      }
+
+      // If still no streams, check any tab with captured streams
+      if (streams.length === 0) {
+        for (const [tId, sList] of tabStreams.entries()) {
+          if (sList && sList.length > 0) {
+            tabId = tId;
+            streams = sList;
+            meta = tabMetadata.get(tId);
+            break;
+          }
+        }
+      }
+
       let title = meta?.title || '';
       let url = meta?.url || '';
 
@@ -204,7 +247,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           chrome.action.setBadgeText({ tabId, text: '' });
         } catch {}
         try {
-          await chrome.storage.local.remove([`stego_popup_state_${tabId}`]);
+          const stateKey = getPopupStateKeySafe(tabId);
+          await chrome.storage.local.remove([stateKey]);
         } catch {}
       } else {
         tabStreams.clear();
