@@ -78,6 +78,32 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
+// Clean up captured streams, badge, and persisted popup state when page navigates/refreshes
+chrome.webNavigation.onCommitted.addListener(async (details) => {
+  if (details.frameId === 0) {
+    const { tabId } = details;
+    tabStreams.delete(tabId);
+    tabMetadata.delete(tabId);
+    try {
+      chrome.action.setBadgeText({ tabId, text: '' });
+    } catch {}
+    try {
+      await chrome.storage.local.remove([`stego_popup_state_${tabId}`, `stego_download_${tabId}`]);
+    } catch {}
+    await persistState();
+  }
+});
+
+// Clean up state when a tab is closed
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  tabStreams.delete(tabId);
+  tabMetadata.delete(tabId);
+  try {
+    await chrome.storage.local.remove([`stego_popup_state_${tabId}`, `stego_download_${tabId}`]);
+  } catch {}
+  await persistState();
+});
+
 // Sniff M3U8 requests before sending
 chrome.webRequest.onSendHeaders.addListener(
   async (details) => {
@@ -122,6 +148,25 @@ chrome.webRequest.onSendHeaders.addListener(
   ['requestHeaders', chrome.webRequest.OnBeforeSendHeadersOptions.EXTRA_HEADERS].filter(Boolean)
 );
 
+// Helper to create or verify offscreen document for background downloading
+async function ensureOffscreenDocument() {
+  if (chrome.offscreen?.hasDocument) {
+    const has = await chrome.offscreen.hasDocument();
+    if (has) return;
+  }
+  try {
+    await chrome.offscreen.createDocument({
+      url: 'offscreen/offscreen.html',
+      reasons: ['BLOBS'],
+      justification: 'Perform background segment downloads and transmuxing'
+    });
+  } catch (err) {
+    if (!err.message?.includes('Only a single offscreen document may be created')) {
+      console.error('Failed to create offscreen document:', err);
+    }
+  }
+}
+
 // Message listener for popup communication
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_STREAMS') {
@@ -130,31 +175,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         await loadPersistedState();
       }
 
-      let tabId = request.tabId || lastActiveMediaTabId;
-      let streams = tabId ? tabStreams.get(tabId) || [] : [];
-      let meta = tabId ? tabMetadata.get(tabId) : null;
-
-      // Fall back to last active media tab or any tab with streams
-      if (streams.length === 0 && lastActiveMediaTabId && lastActiveMediaTabId !== tabId) {
-        const fallbackStreams = tabStreams.get(lastActiveMediaTabId) || [];
-        if (fallbackStreams.length > 0) {
-          tabId = lastActiveMediaTabId;
-          streams = fallbackStreams;
-          meta = tabMetadata.get(tabId);
-        }
-      }
-
-      if (streams.length === 0) {
-        for (const [tId, sList] of tabStreams.entries()) {
-          if (sList && sList.length > 0) {
-            tabId = tId;
-            streams = sList;
-            meta = tabMetadata.get(tId);
-            break;
-          }
-        }
-      }
-
+      const tabId = request.tabId;
+      const streams = tabId ? tabStreams.get(tabId) || [] : [];
+      const meta = tabId ? tabMetadata.get(tabId) : null;
       let title = meta?.title || '';
       let url = meta?.url || '';
 
@@ -176,11 +199,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === 'CLEAR_STREAMS') {
-    const tabId = request.tabId || lastActiveMediaTabId;
+    const tabId = request.tabId;
     if (tabId) {
       tabStreams.delete(tabId);
       tabMetadata.delete(tabId);
-      chrome.action.setBadgeText({ tabId, text: '' });
+      try {
+        chrome.action.setBadgeText({ tabId, text: '' });
+      } catch {}
+      try {
+        chrome.storage.local.remove([`stego_popup_state_${tabId}`, `stego_download_${tabId}`]);
+      } catch {}
     } else {
       tabStreams.clear();
       tabMetadata.clear();
@@ -188,6 +216,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     persistState().then(() => {
       sendResponse({ success: true });
     });
+    return true;
+  }
+
+  if (request.type === 'START_DOWNLOAD') {
+    (async () => {
+      await ensureOffscreenDocument();
+      chrome.runtime.sendMessage({
+        ...request,
+        type: 'OFFSCREEN_START_DOWNLOAD'
+      });
+      sendResponse({ success: true });
+    })();
+    return true;
+  }
+
+  if (request.type === 'CANCEL_DOWNLOAD') {
+    chrome.runtime.sendMessage({
+      ...request,
+      type: 'OFFSCREEN_CANCEL_DOWNLOAD'
+    });
+    sendResponse({ success: true });
     return true;
   }
 
