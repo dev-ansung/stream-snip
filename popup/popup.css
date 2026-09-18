@@ -54,6 +54,11 @@ header h1 {
   background: #e2e8f0;
 }
 
+.header-action-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .badge {
   background: #dbeafe;
   color: #1e40af;

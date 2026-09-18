@@ -44,7 +44,7 @@ const btnCancel = document.getElementById('btnCancel');
 const progressContainer = document.getElementById('progressContainer');
 const downloadProgress = document.getElementById('downloadProgress');
 const progressStatus = document.getElementById('progressStatus');
-const btnClearStreams = document.getElementById('btnClearStreams');
+const btnRefreshStreams = document.getElementById('btnRefreshStreams');
 
 // Check display and execution mode
 const urlParams = new URLSearchParams(window.location.search);
@@ -55,7 +55,7 @@ const shouldAutoDownload =
 
 if (isDownloadMode) {
   document.body.classList.add('download-mode');
-  if (btnClearStreams) btnClearStreams.style.display = 'none';
+  if (btnRefreshStreams) btnRefreshStreams.style.display = 'none';
 }
 
 function getHeightLabel(height) {
@@ -489,31 +489,34 @@ function formatStreamTitle(stream, idx) {
 }
 
 // Event Listeners Wiring
-if (btnClearStreams) {
-  btnClearStreams.addEventListener('click', async () => {
-    const msgType =
-      typeof StegoConstants !== 'undefined'
-        ? StegoConstants.MSG_TYPES.CLEAR_STREAMS
-        : 'CLEAR_STREAMS';
-    await chrome.runtime.sendMessage({ type: msgType, tabId: currentTabId });
-    if (currentTabId) {
-      await StateManager.clearState(currentTabId);
+if (btnRefreshStreams) {
+  btnRefreshStreams.addEventListener('click', async () => {
+    btnRefreshStreams.disabled = true;
+    try {
+      if (!currentTabId && typeof chrome !== 'undefined' && chrome.tabs?.query) {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) currentTabId = tab.id;
+      }
+      if (currentTabId) {
+        const liveTitle = await resolveDocumentTitle(currentTabId);
+        if (liveTitle && !StegoTime.isGenericBase(liveTitle)) {
+          currentDefaultBaseName = liveTitle;
+          if (!userCustomBaseName) {
+            updateFilenameTimestamps();
+          }
+        }
+        await requestStreams(currentTabId);
+        sendSyncStateToPage(true, currentTabId);
+      }
+      UiFeedback.info('Streams refreshed.');
+    } catch (err) {
+      console.warn('[StegoClip:Popup] Failed to refresh streams:', err);
+      UiFeedback.error('Failed to refresh streams.');
+    } finally {
+      setTimeout(() => {
+        btnRefreshStreams.disabled = false;
+      }, 400);
     }
-    currentStreams = [];
-    selectedStream = null;
-    selectedVariant = null;
-    currentTimeline = null;
-    userCustomBaseName = null;
-    streamCountBadge.textContent = '0 streams';
-    streamSelect.innerHTML = '<option value="">No M3U8 streams detected on this tab</option>';
-    videoInfoEl.textContent = 'Play a video on the page to intercept its stream.';
-    btnDownload.disabled = true;
-    PlayerController.destroy();
-    startTimeInput.value = '00:00';
-    endTimeInput.value = '00:00';
-    clipDurationText.textContent = 'Clip: --:--';
-    filenameInput.value = 'video_clip';
-    UiFeedback.info('Cleared captured streams for this tab.');
   });
 }
 
@@ -791,131 +794,135 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
 async function requestStreams(targetId) {
   const getStreamsType =
     typeof StegoConstants !== 'undefined' ? StegoConstants.MSG_TYPES.GET_STREAMS : 'GET_STREAMS';
-  chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, async (response) => {
-    const received = response?.streams || [];
-    if (received.length > 0 || currentStreams.length === 0) {
-      currentStreams = received;
-    }
-    currentTabId = response?.tabId || targetId;
-    streamCountBadge.textContent = `${currentStreams.length} stream${currentStreams.length === 1 ? '' : 's'}`;
-
-    if (!userCustomBaseName) {
-      let liveTitle = null;
-      if (currentTabId) {
-        liveTitle = await resolveDocumentTitle(currentTabId);
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, async (response) => {
+      const received = response?.streams || [];
+      if (received.length > 0 || currentStreams.length === 0) {
+        currentStreams = received;
       }
-      if (liveTitle && !StegoTime.isGenericBase(liveTitle)) {
-        currentDefaultBaseName = liveTitle;
-      } else if (response?.tabTitle) {
-        const detected = StegoTime.cleanTitleForFilename(response.tabTitle);
-        if (detected && !StegoTime.isGenericBase(detected)) {
-          currentDefaultBaseName = detected;
+      currentTabId = response?.tabId || targetId;
+      streamCountBadge.textContent = `${currentStreams.length} stream${currentStreams.length === 1 ? '' : 's'}`;
+
+      if (!userCustomBaseName) {
+        let liveTitle = null;
+        if (currentTabId) {
+          liveTitle = await resolveDocumentTitle(currentTabId);
+        }
+        if (liveTitle && !StegoTime.isGenericBase(liveTitle)) {
+          currentDefaultBaseName = liveTitle;
+        } else if (response?.tabTitle) {
+          const detected = StegoTime.cleanTitleForFilename(response.tabTitle);
+          if (detected && !StegoTime.isGenericBase(detected)) {
+            currentDefaultBaseName = detected;
+          }
+        }
+        if (currentDefaultBaseName && !StegoTime.isGenericBase(currentDefaultBaseName)) {
+          updateFilenameTimestamps();
         }
       }
-      if (currentDefaultBaseName && !StegoTime.isGenericBase(currentDefaultBaseName)) {
-        updateFilenameTimestamps();
+
+      streamSelect.innerHTML = '';
+
+      if (currentStreams.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No M3U8 streams detected on this tab';
+        streamSelect.appendChild(opt);
+        videoInfoEl.textContent = 'Play a video on the page to intercept its stream.';
+        btnDownload.disabled = true;
+        resolve();
+        return;
       }
-    }
 
-    streamSelect.innerHTML = '';
+      currentStreams.sort((a, b) => {
+        const aIsMaster = a.url.includes('master') ? 1 : 0;
+        const bIsMaster = b.url.includes('master') ? 1 : 0;
+        return bIsMaster - aIsMaster;
+      });
 
-    if (currentStreams.length === 0) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'No M3U8 streams detected on this tab';
-      streamSelect.appendChild(opt);
-      videoInfoEl.textContent = 'Play a video on the page to intercept its stream.';
-      btnDownload.disabled = true;
-      return;
-    }
+      btnDownload.disabled = false;
+      currentStreams.forEach((s, idx) => {
+        const opt = document.createElement('option');
+        opt.value = s.url;
+        opt.textContent = formatStreamTitle(s, idx);
+        streamSelect.appendChild(opt);
+      });
 
-    currentStreams.sort((a, b) => {
-      const aIsMaster = a.url.includes('master') ? 1 : 0;
-      const bIsMaster = b.url.includes('master') ? 1 : 0;
-      return bIsMaster - aIsMaster;
-    });
+      const state = await StateManager.loadState(currentTabId);
 
-    btnDownload.disabled = false;
-    currentStreams.forEach((s, idx) => {
-      const opt = document.createElement('option');
-      opt.value = s.url;
-      opt.textContent = formatStreamTitle(s, idx);
-      streamSelect.appendChild(opt);
-    });
-
-    const state = await StateManager.loadState(currentTabId);
-
-    let targetStream = currentStreams[0];
-    if (state?.streamUrl) {
-      const matched = currentStreams.find((s) => s.url === state.streamUrl);
-      if (matched) {
-        targetStream = matched;
-        streamSelect.value = matched.url;
+      let targetStream = currentStreams[0];
+      if (state?.streamUrl) {
+        const matched = currentStreams.find((s) => s.url === state.streamUrl);
+        if (matched) {
+          targetStream = matched;
+          streamSelect.value = matched.url;
+        }
       }
-    }
 
-    await loadStream(targetStream);
+      await loadStream(targetStream);
 
-    if (state?.variantUrl && currentVariants.length > 1) {
-      const matchedVariant = currentVariants.find((v) => v.url === state.variantUrl);
-      if (matchedVariant) {
-        qualitySelect.value = matchedVariant.url;
-        await loadVariant(matchedVariant);
+      if (state?.variantUrl && currentVariants.length > 1) {
+        const matchedVariant = currentVariants.find((v) => v.url === state.variantUrl);
+        if (matchedVariant) {
+          qualitySelect.value = matchedVariant.url;
+          await loadVariant(matchedVariant);
+        }
       }
-    }
 
-    if (state) {
-      if (state.startTime) startTimeInput.value = state.startTime;
-      if (state.endTime) endTimeInput.value = state.endTime;
-      if (state.isFull) {
-        fullVideoToggle.checked = true;
-        startTimeInput.disabled = true;
-        endTimeInput.disabled = true;
-        btnSetStart.disabled = true;
-        btnSetEnd.disabled = true;
+      if (state) {
+        if (state.startTime) startTimeInput.value = state.startTime;
+        if (state.endTime) endTimeInput.value = state.endTime;
+        if (state.isFull) {
+          fullVideoToggle.checked = true;
+          startTimeInput.disabled = true;
+          endTimeInput.disabled = true;
+          btnSetStart.disabled = true;
+          btnSetEnd.disabled = true;
+        }
+        if (state.userCustomBaseName) {
+          userCustomBaseName = state.userCustomBaseName;
+        }
+        if (state.isUserCustomFilename && state.filename) {
+          filenameInput.value = state.filename;
+        } else {
+          updateFilenameTimestamps();
+        }
+        if (state.format && formatSelect) {
+          formatSelect.value = state.format;
+          btnDownload.textContent = `⬇️ Download ${state.format.toUpperCase()} Clip`;
+        }
+        updateClipDuration();
       }
-      if (state.userCustomBaseName) {
-        userCustomBaseName = state.userCustomBaseName;
-      }
-      if (state.isUserCustomFilename && state.filename) {
-        filenameInput.value = state.filename;
-      } else {
-        updateFilenameTimestamps();
-      }
-      if (state.format && formatSelect) {
-        formatSelect.value = state.format;
-        btnDownload.textContent = `⬇️ Download ${state.format.toUpperCase()} Clip`;
-      }
-      updateClipDuration();
-    }
 
-    if (currentTabId) {
-      await sendSyncStateToPage(true);
-      const getMediaTimeType =
-        typeof StegoConstants !== 'undefined'
-          ? StegoConstants.MSG_TYPES.GET_PAGE_MEDIA_TIME
-          : 'GET_PAGE_MEDIA_TIME';
-      try {
-        const previewDuration = PlayerController.getDuration();
-        chrome.tabs.sendMessage(
-          currentTabId,
-          { type: getMediaTimeType, expectedDuration: previewDuration },
-          (response) => {
-            if (
-              !chrome.runtime.lastError &&
-              response?.success &&
-              typeof response.currentTime === 'number'
-            ) {
-              PlayerController.seekTo(response.currentTime);
+      if (currentTabId) {
+        await sendSyncStateToPage(true);
+        const getMediaTimeType =
+          typeof StegoConstants !== 'undefined'
+            ? StegoConstants.MSG_TYPES.GET_PAGE_MEDIA_TIME
+            : 'GET_PAGE_MEDIA_TIME';
+        try {
+          const previewDuration = PlayerController.getDuration();
+          chrome.tabs.sendMessage(
+            currentTabId,
+            { type: getMediaTimeType, expectedDuration: previewDuration },
+            (response) => {
+              if (
+                !chrome.runtime.lastError &&
+                response?.success &&
+                typeof response.currentTime === 'number'
+              ) {
+                PlayerController.seekTo(response.currentTime);
+              }
             }
-          }
-        );
-      } catch {}
-    }
+          );
+        } catch {}
+      }
 
-    if (shouldAutoDownload) {
-      await executeDownload();
-    }
+      if (shouldAutoDownload) {
+        await executeDownload();
+      }
+      resolve();
+    });
   });
 }
 
