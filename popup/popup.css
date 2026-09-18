@@ -255,46 +255,6 @@ progress {
   margin-top: 8px;
 }
 
-/* Full Page Studio Mode (when opened in dedicated tab or window) */
-body.full-page {
-  width: 100%;
-  box-sizing: border-box;
-  max-width: 1360px;
-  margin: 0 auto;
-  padding: 24px 32px;
-  background-color: #f8fafc;
-}
-
-body.full-page header {
-  padding-bottom: 16px;
-  margin-bottom: 20px;
-}
-
-body.full-page header h1 {
-  font-size: 20px;
-}
-
-body.full-page .app-layout {
-  display: grid;
-  grid-template-columns: 1.5fr 1fr;
-  gap: 24px;
-  align-items: start;
-}
-
-body.full-page .card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-body.full-page video {
-  max-height: 540px;
-  aspect-ratio: 16 / 9;
-  border-radius: 8px;
-}
-
 /* Toast Notifications */
 .toast-container {
   position: fixed;

@@ -13,7 +13,6 @@ A lightweight standalone Google Chrome Extension (Manifest V3) that intercepts H
 - **Dedicated Focused Download Mode**: Downloads proceed in a focused background workspace (`mode=download`), leaving the main panel responsive and free from UI blocking.
 - **Native In-Browser Authentication**: All segment requests are made directly in your browser session with authenticated cookies and headers, completely eliminating 403 Forbidden errors from ephemeral CDN tokens.
 - **Pure JavaScript Faststart MP4 Generation**: Converts fragmented MP4 streams into standard progressive `[ftyp][moov][mdat]` files with sample tables (`stts`, `stss`, `ctts`, `stsz`, `stsc`, `stco`) for seamless compatibility with QuickTime Player, macOS Finder preview, and iOS devices.
-- **Dedicated Full-Page Studio Mode**: Expand from the sidebar into a full-page workspace (`popup.html?mode=full`) to manage long streams and inspect media properties on a larger canvas.
 - **Side Panel Video Preview**: Built-in player powered by `hls.js` with a custom `StegoFragmentLoader` to preview and scrub both normal and steganographic streams.
 - **One-Click Range Pickers**: Click "⏱️ Current" while watching the video preview to lock in your start and end clipping timestamps.
 - **Automatic Steganography Stripping**: Transparently detects dummy 1x1 PNG headers and extracts raw MPEG-TS video payloads.
@@ -40,8 +39,8 @@ stego-clip-extension/
 │   └── transmuxer.js         # TS-to-MP4 transmuxer and pure JS fMP4 unfragmenter
 ├── popup/
 │   ├── player-controller.js  # Hls.js lifecycle, metadata extraction, and preview control
-│   ├── popup.css             # Popup, sidepanel, and full-page Studio styling with toast notifications
-│   ├── popup.html            # Studio layout, media inspector, and download panel
+│   ├── popup.css             # Side panel and download manager styling with toast notifications
+│   ├── popup.html            # Side panel layout, media inspector, and download manager
 │   ├── popup.js              # Presentation coordinator and user event wiring
 │   ├── state-manager.js      # Debounced, tab-isolated storage synchronization
 │   └── ui-feedback.js        # Non-blocking inline toast feedback
@@ -77,7 +76,6 @@ stego-clip-extension/
 4. Scrub the preview or the host webpage player to locate your desired start and end points.
 5. Click **⏱️ Current** to lock in your start and end times (or type timestamps manually as `MM:SS` or `HH:MM:SS`).
 6. Select your output container (`MP4` or `TS`) and click **⬇️ Download MP4 Clip**. The assembled video file will download to your browser's default Downloads folder.
-7. For long streams or inspecting media properties, click **⛶ Open Full Page** to open the full-screen Studio tab.
 
 ## Building for Distribution
 

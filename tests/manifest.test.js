@@ -92,12 +92,11 @@ test('manifest permissions contain expected MV3 permissions', () => {
   );
 });
 
-test('popup.html contains clear streams and full page studio buttons', () => {
+test('popup.html contains clear streams button, download manager, and script tags', () => {
   const popupHtmlPath = path.join(rootDir, 'popup', 'popup.html');
   assert.ok(fs.existsSync(popupHtmlPath));
   const html = fs.readFileSync(popupHtmlPath, 'utf8');
   assert.ok(html.includes('id="btnClearStreams"'), 'Must have btnClearStreams');
-  assert.ok(html.includes('id="btnOpenTab"'), 'Must have btnOpenTab');
   assert.ok(html.includes('id="toastContainer"'), 'Must have toastContainer');
   assert.ok(html.includes('id="downloadManagerCard"'), 'Must have downloadManagerCard');
   assert.ok(html.includes('ui-feedback.js'), 'Must include ui-feedback.js');

@@ -1,5 +1,5 @@
 /**
- * UI controller for the StegoClip Popup & Full-Page Studio.
+ * UI controller for the StegoClip Side Panel & Download Manager.
  * Coordinates PlayerController, StateManager, UiFeedback, and SegmentDownloader.
  */
 
@@ -44,25 +44,18 @@ const btnCancel = document.getElementById('btnCancel');
 const progressContainer = document.getElementById('progressContainer');
 const downloadProgress = document.getElementById('downloadProgress');
 const progressStatus = document.getElementById('progressStatus');
-const btnOpenTab = document.getElementById('btnOpenTab');
 const btnClearStreams = document.getElementById('btnClearStreams');
 
 // Check display and execution mode
 const urlParams = new URLSearchParams(window.location.search);
 const isDownloadMode = urlParams.get('mode') === 'download';
-const isFullPageMode =
-  !isDownloadMode && (urlParams.get('mode') === 'full' || window.innerWidth > 500);
 const tabIdFromUrl = urlParams.get('tabId') ? parseInt(urlParams.get('tabId'), 10) : null;
 const shouldAutoDownload =
   urlParams.get('download') === '1' || urlParams.get('autoDownload') === 'true';
 
 if (isDownloadMode) {
   document.body.classList.add('download-mode');
-  if (btnOpenTab) btnOpenTab.style.display = 'none';
   if (btnClearStreams) btnClearStreams.style.display = 'none';
-} else if (isFullPageMode) {
-  document.body.classList.add('full-page');
-  if (btnOpenTab) btnOpenTab.style.display = 'none';
 }
 
 function getHeightLabel(height) {
@@ -496,15 +489,6 @@ function formatStreamTitle(stream, idx) {
 }
 
 // Event Listeners Wiring
-if (btnOpenTab) {
-  btnOpenTab.addEventListener('click', () => {
-    const tabParam = currentTabId ? `&tabId=${currentTabId}` : '';
-    chrome.tabs.create({
-      url: chrome.runtime.getURL(`popup/popup.html?mode=full${tabParam}`)
-    });
-  });
-}
-
 if (btnClearStreams) {
   btnClearStreams.addEventListener('click', async () => {
     const msgType =
@@ -644,7 +628,7 @@ qualitySelect.addEventListener('change', () => {
 });
 
 btnDownload.addEventListener('click', async () => {
-  if (!isFullPageMode && !isDownloadMode) {
+  if (!isDownloadMode) {
     await savePopupStateImmediate();
     const tabParam = currentTabId ? `&tabId=${currentTabId}` : '';
     chrome.tabs.create({
