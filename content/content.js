@@ -35,17 +35,26 @@
 
   /**
    * Finds the most relevant video element on the current frame or page.
+   * If expectedDuration is provided, prioritizes the video matching that duration.
    */
-  function findPrimaryVideo() {
+  function findPrimaryVideo(expectedDuration = 0) {
     const videos = findAllVideos(document);
     if (videos.length === 0) return null;
     if (videos.length === 1) return videos[0];
 
-    // Priority 1: Currently playing video
+    // Priority 1: Match by duration of the preview video (within 2s tolerance)
+    if (expectedDuration > 0) {
+      const match = videos.find(
+        (v) => v.duration && Math.abs(v.duration - expectedDuration) <= 2.0
+      );
+      if (match) return match;
+    }
+
+    // Priority 2: Currently playing video
     const playing = videos.find((v) => !v.paused && v.currentTime > 0);
     if (playing) return playing;
 
-    // Priority 2: Largest visible video by area
+    // Priority 3: Largest visible video by area
     let largest = null;
     let maxArea = 0;
     for (const v of videos) {
@@ -152,7 +161,7 @@
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message?.type === 'GET_PAGE_MEDIA_TIME') {
-        const primary = findPrimaryVideo();
+        const primary = findPrimaryVideo(message?.expectedDuration || 0);
         if (primary) {
           sendResponse({
             success: true,

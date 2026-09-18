@@ -28,6 +28,9 @@ class PlayerControllerClass {
 
     if (this.videoEl) {
       const metadataHandler = () => {
+        if (this.videoEl.duration && !isNaN(this.videoEl.duration)) {
+          this.mediaInfo.totalDuration = this.videoEl.duration;
+        }
         this.handleDimensionsChange();
         this.applyPendingSeek();
       };
@@ -88,6 +91,13 @@ class PlayerControllerClass {
 
   getMediaInfo() {
     return { ...this.mediaInfo };
+  }
+
+  getDuration() {
+    if (this.videoEl && !isNaN(this.videoEl.duration) && this.videoEl.duration > 0) {
+      return this.videoEl.duration;
+    }
+    return this.mediaInfo.totalDuration || 0;
   }
 
   getCurrentTime() {

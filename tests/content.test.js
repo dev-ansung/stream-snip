@@ -47,6 +47,25 @@ test('findPrimaryVideo prioritizes actively playing video', () => {
   delete global.document;
 });
 
+test('findPrimaryVideo prioritizes video with matching expectedDuration', () => {
+  const fakeVideos = [
+    { paused: false, currentTime: 15, duration: 1500, videoWidth: 1920, videoHeight: 1080 },
+    { paused: true, currentTime: 0, duration: 13985.033, videoWidth: 640, videoHeight: 360 }
+  ];
+
+  global.document = {
+    querySelectorAll: (selector) => {
+      if (selector === 'video') return fakeVideos;
+      return [];
+    }
+  };
+
+  const matched = findPrimaryVideo(13985);
+  assert.equal(matched, fakeVideos[1]);
+
+  delete global.document;
+});
+
 test('handleVideoSeek sends TAB_MEDIA_SEEK message via chrome.runtime', () => {
   let dispatched = null;
   global.chrome = {

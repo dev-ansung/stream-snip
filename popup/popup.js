@@ -653,6 +653,20 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
       return;
     }
 
+    // Verify video duration matches the preview player duration within tolerance
+    const previewDuration = PlayerController.getDuration();
+    if (previewDuration > 0 && typeof message.duration === 'number' && message.duration > 0) {
+      const durationDiff = Math.abs(message.duration - previewDuration);
+      if (durationDiff > 2.0) {
+        console.info(
+          `[StegoClip:Popup] Ignored seek from unrelated video (page duration: ${message.duration.toFixed(
+            2
+          )}s vs preview: ${previewDuration.toFixed(2)}s)`
+        );
+        return;
+      }
+    }
+
     const didSeek = PlayerController.seekTo(message.currentTime);
     if (didSeek) {
       UiFeedback.info(`Synced to tab (${StegoTime.formatDuration(message.currentTime)})`, 1200);
@@ -769,15 +783,20 @@ async function requestStreams(targetId) {
           ? StegoConstants.MSG_TYPES.GET_PAGE_MEDIA_TIME
           : 'GET_PAGE_MEDIA_TIME';
       try {
-        chrome.tabs.sendMessage(currentTabId, { type: getMediaTimeType }, (response) => {
-          if (
-            !chrome.runtime.lastError &&
-            response?.success &&
-            typeof response.currentTime === 'number'
-          ) {
-            PlayerController.seekTo(response.currentTime);
+        const previewDuration = PlayerController.getDuration();
+        chrome.tabs.sendMessage(
+          currentTabId,
+          { type: getMediaTimeType, expectedDuration: previewDuration },
+          (response) => {
+            if (
+              !chrome.runtime.lastError &&
+              response?.success &&
+              typeof response.currentTime === 'number'
+            ) {
+              PlayerController.seekTo(response.currentTime);
+            }
           }
-        });
+        );
       } catch {}
     }
 
