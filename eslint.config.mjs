@@ -47,6 +47,22 @@ export default [
     }
   },
 
+  // Offscreen Document script (Browser Window with Chrome APIs)
+  {
+    files: ['offscreen/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.webextensions,
+        chrome: 'readonly',
+        muxjs: 'readonly',
+        StegoDecoder: 'readonly',
+        StegoDownloader: 'readonly',
+        StegoTransmuxer: 'readonly'
+      }
+    }
+  },
+
   // Popup & UI scripts (Browser Window with Chrome APIs)
   {
     files: ['popup/**/*.js'],
