@@ -8,7 +8,7 @@ const {
   formatTimestampForFilename,
   extractBaseName,
   buildClipFilename,
-  detectBaseNameFromTitle
+  cleanTitleForFilename
 } = require('../lib/time.js');
 
 test('parseTimestamp handles MM:SS', () => {
@@ -61,51 +61,47 @@ test('extractBaseName preserves base and separator without extension', () => {
   assert.deepEqual(extractBaseName('ABF-361.47_00-54_00'), { base: 'ABF-361', sep: '.' });
   assert.deepEqual(extractBaseName('ABF-361_47_00-54_00'), { base: 'ABF-361', sep: '_' });
   assert.deepEqual(extractBaseName('ABF-361_full'), { base: 'ABF-361', sep: '_' });
-  assert.deepEqual(extractBaseName('ABF-361'), { base: 'ABF-361', sep: '_' });
+  assert.deepEqual(extractBaseName('ABF-361'), { base: 'ABF-361', sep: '-' });
   assert.deepEqual(extractBaseName('ABF-361.47_00-54_00.mp4'), { base: 'ABF-361', sep: '.' });
 });
 
 test('buildClipFilename formats filename dynamically without mp4 extension', () => {
+  assert.equal(buildClipFilename('ABF-361', '47:00', '54:00'), 'ABF-361-47_00-54_00');
   assert.equal(buildClipFilename('ABF-361', '47:00', '54:00', false, '.'), 'ABF-361.47_00-54_00');
   assert.equal(buildClipFilename('ABF-361', '47:00', '55:30', false, '_'), 'ABF-361_47_00-55_30');
-  assert.equal(buildClipFilename('ABF-361', '00:00', '02:03:06', true, '_'), 'ABF-361_full');
+  assert.equal(buildClipFilename('ABF-361', '00:00', '02:03:06', true), 'ABF-361-full');
 });
 
-test('detectBaseNameFromTitle extracts video code or cleans title', () => {
-  assert.equal(
-    detectBaseNameFromTitle(
-      '[无码破解]ABF-361 人文系女学生沉迷于中年男子的黏腻性爱。黏腻、高湿度、无声的性爱。'
-    ),
-    'ABF-361'
-  );
-  assert.equal(detectBaseNameFromTitle('[Sup] [无码破解]ABF-361'), 'ABF-361');
-  assert.equal(detectBaseNameFromTitle('FNS-236 720p HD'), 'FNS-236');
-  assert.equal(detectBaseNameFromTitle('FC2-PPV-123456 Video Title'), 'FC2-PPV-123456');
-  assert.equal(detectBaseNameFromTitle('Regular Video Without Code'), 'Regular_Video_Without_Code');
+test('cleanTitleForFilename sanitizes document.title into dash-separated filename title', () => {
+  assert.equal(cleanTitleForFilename('[无码破解]ABF-361 女学生'), '[无码破解]ABF-361-女学生');
+  assert.equal(cleanTitleForFilename('FNS-236 720p HD'), 'FNS-236-720p-HD');
+  assert.equal(cleanTitleForFilename('FC2-PPV-123456 Video Title'), 'FC2-PPV-123456-Video-Title');
+  assert.equal(cleanTitleForFilename('Regular Video Without Code'), 'Regular-Video-Without-Code');
 });
 
 test('extractBaseName upgrades generic names to detected code', () => {
-  assert.deepEqual(extractBaseName('video_clip_47_00-54_00', 'ABF-361'), {
+  assert.deepEqual(extractBaseName('video_clip-47_00-54_00', 'ABF-361'), {
     base: 'ABF-361',
-    sep: '_'
+    sep: '-'
   });
-  assert.deepEqual(extractBaseName('master_1080p_clip', 'ABF-361'), { base: 'ABF-361', sep: '_' });
-  assert.deepEqual(extractBaseName('MyCustomClip_47_00-54_00', 'ABF-361'), {
+  assert.deepEqual(extractBaseName('master-1080p-clip', 'ABF-361'), { base: 'ABF-361', sep: '-' });
+  assert.deepEqual(extractBaseName('MyCustomClip-47_00-54_00', 'ABF-361'), {
     base: 'MyCustomClip',
-    sep: '_'
+    sep: '-'
   });
 });
 
 test('extractBaseName handles multiple or chained timestamp suffixes cleanly', () => {
   const uglyString =
     'PKPD-117_1-02_00_55_1_-02_00_55_1_0-02_00_55_1_03_-02_00_55_1_03_0-02_00_55_1_03_00-1_1_03_00-1__1_03_00-1_1_1_03_00-1_18__1_03_00-1_18_0_1_03_00-1_18_00';
-  assert.deepEqual(extractBaseName(uglyString, 'PKPD-117'), { base: 'PKPD-117', sep: '_' });
-  assert.deepEqual(extractBaseName(uglyString, 'video_clip'), { base: 'PKPD-117', sep: '_' });
+  assert.deepEqual(extractBaseName(uglyString, 'PKPD-117'), { base: 'PKPD-117', sep: '-' });
+  assert.deepEqual(extractBaseName(uglyString, 'video_clip'), { base: 'PKPD-117', sep: '-' });
 });
 
-test('buildClipFilename normalizes hours into HH_MM_SS timestamps', () => {
+test('buildClipFilename normalizes hours into dash-separated title-start-end', () => {
+  assert.equal(buildClipFilename('PKPD-117', '1:03:00', '1:18:00'), 'PKPD-117-01_03_00-01_18_00');
   assert.equal(
-    buildClipFilename('PKPD-117', '1:03:00', '1:18:00', false, '_'),
-    'PKPD-117_01_03_00-01_18_00'
+    buildClipFilename('PKPD-117-女神のおもてなし', '1:03:00', '1:18:00'),
+    'PKPD-117-女神のおもてなし-01_03_00-01_18_00'
   );
 });
