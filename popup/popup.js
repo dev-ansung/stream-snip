@@ -19,7 +19,6 @@ const streamSelect = document.getElementById('streamSelect');
 const streamCountBadge = document.getElementById('streamCount');
 const videoInfoEl = document.getElementById('videoInfo');
 const activeQualityBadge = document.getElementById('activeQualityBadge');
-const syncTabSeekToggle = document.getElementById('syncTabSeekToggle');
 
 const mediaResolutionEl = document.getElementById('mediaResolution');
 const mediaBitrateEl = document.getElementById('mediaBitrate');
@@ -187,8 +186,7 @@ function savePopupState() {
     isFull: fullVideoToggle?.checked || false,
     filename: filenameInput?.value || '',
     userCustomBaseName: userCustomBaseName || '',
-    format: formatSelect?.value || 'mp4',
-    syncWithTab: syncTabSeekToggle ? syncTabSeekToggle.checked : false
+    format: formatSelect?.value || 'mp4'
   });
 }
 
@@ -263,6 +261,7 @@ async function loadVariant(variant) {
     PlayerController.mediaInfo.avgSegmentDuration =
       currentTimeline.segments.length > 0 ? totalSec / currentTimeline.segments.length : 0;
     renderMediaDetails();
+    sendSyncStateToPage(true);
 
     if (!startTimeInput.value || startTimeInput.value === '00:00') {
       startTimeInput.value = '00:00';
@@ -628,17 +627,8 @@ async function sendSyncStateToPage(enabled, tabId = currentTabId) {
   }
 }
 
-if (syncTabSeekToggle) {
-  syncTabSeekToggle.addEventListener('change', async () => {
-    const isEnabled = syncTabSeekToggle.checked;
-    await sendSyncStateToPage(isEnabled);
-    savePopupState();
-    UiFeedback.info(isEnabled ? 'Live Tab Sync Enabled' : 'Live Tab Sync Disabled', 1200);
-  });
-}
-
 window.addEventListener('beforeunload', () => {
-  if (syncTabSeekToggle?.checked && currentTabId) {
+  if (currentTabId) {
     sendSyncStateToPage(false);
   }
 });
@@ -686,11 +676,6 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
       } catch {
         return;
       }
-    }
-
-    if (syncTabSeekToggle && !syncTabSeekToggle.checked) {
-      console.info('[StegoClip:Popup] Seek ignored because sync toggle is off');
-      return;
     }
 
     // Verify video duration matches the preview player duration within tolerance
@@ -811,13 +796,10 @@ async function requestStreams(targetId) {
         formatSelect.value = state.format;
         btnDownload.textContent = `⬇️ Download ${state.format.toUpperCase()} Clip`;
       }
-      if (state.syncWithTab !== undefined && syncTabSeekToggle) {
-        syncTabSeekToggle.checked = state.syncWithTab;
-      }
       updateClipDuration();
     }
 
-    if (currentTabId && syncTabSeekToggle?.checked) {
+    if (currentTabId) {
       await sendSyncStateToPage(true);
       const getMediaTimeType =
         typeof StegoConstants !== 'undefined'
@@ -1130,7 +1112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
         }
 
-        if (syncTabSeekToggle?.checked && currentTabId && currentTabId !== activeInfo.tabId) {
+        if (currentTabId && currentTabId !== activeInfo.tabId) {
           sendSyncStateToPage(false, currentTabId);
         }
         currentDefaultBaseName = '';
@@ -1140,9 +1122,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (detected) currentDefaultBaseName = detected;
         }
         requestStreams(activeInfo.tabId);
-        if (syncTabSeekToggle?.checked) {
-          sendSyncStateToPage(true, activeInfo.tabId);
-        }
+        sendSyncStateToPage(true, activeInfo.tabId);
       } catch {}
     });
   }
