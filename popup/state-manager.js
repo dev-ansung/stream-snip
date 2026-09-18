@@ -57,6 +57,29 @@ class StateManagerClass {
     this.debounceTimers.set(key, timer);
   }
 
+  async saveStateImmediate(tabId, state) {
+    if (!tabId || typeof chrome === 'undefined' || !chrome.storage?.local) {
+      return;
+    }
+    const key = this.getStateKey(tabId);
+    const existingTimer = this.debounceTimers.get(key);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this.debounceTimers.delete(key);
+    }
+    try {
+      await chrome.storage.local.set({
+        [key]: {
+          ...state,
+          tabId,
+          timestamp: Date.now()
+        }
+      });
+    } catch (err) {
+      console.warn('[StateManager] Failed to save state immediately:', err);
+    }
+  }
+
   async clearState(tabId) {
     if (!tabId || typeof chrome === 'undefined' || !chrome.storage?.local) {
       return;

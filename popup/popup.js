@@ -176,11 +176,11 @@ function updateStreamOptionWithResolution(streamUrl, width, height) {
   }
 }
 
-function savePopupState() {
-  if (!currentTabId) return;
-  StateManager.saveState(currentTabId, {
+function getPopupStatePayload() {
+  return {
     streamUrl: selectedStream?.url || '',
     variantUrl: selectedVariant?.url || '',
+    headers: selectedStream?.headers || {},
     startTime: startTimeInput?.value || '',
     endTime: endTimeInput?.value || '',
     isFull: fullVideoToggle?.checked || false,
@@ -188,7 +188,17 @@ function savePopupState() {
     userCustomBaseName: userCustomBaseName || '',
     isUserCustomFilename: Boolean(userCustomBaseName),
     format: formatSelect?.value || 'mp4'
-  });
+  };
+}
+
+function savePopupState() {
+  if (!currentTabId) return;
+  StateManager.saveState(currentTabId, getPopupStatePayload());
+}
+
+async function savePopupStateImmediate() {
+  if (!currentTabId) return;
+  await StateManager.saveStateImmediate(currentTabId, getPopupStatePayload());
 }
 
 function updateClipDuration() {
@@ -635,7 +645,7 @@ qualitySelect.addEventListener('change', () => {
 
 btnDownload.addEventListener('click', async () => {
   if (!isFullPageMode && !isDownloadMode) {
-    savePopupState();
+    await savePopupStateImmediate();
     const tabParam = currentTabId ? `&tabId=${currentTabId}` : '';
     chrome.tabs.create({
       url: chrome.runtime.getURL(`popup/popup.html?mode=download${tabParam}&download=1`),
@@ -992,8 +1002,13 @@ async function executeDownloadTaskMode(targetId) {
 
     const stream = (streamsResp?.streams || []).find((s) => s.url === savedState.streamUrl) || {
       url: savedState.streamUrl,
-      headers: {}
+      headers: savedState.headers || {}
     };
+
+    const headers =
+      savedState.headers && Object.keys(savedState.headers).length > 0
+        ? savedState.headers
+        : stream.headers || {};
 
     const applyDnrType =
       typeof StegoConstants !== 'undefined'
@@ -1003,7 +1018,7 @@ async function executeDownloadTaskMode(targetId) {
       chrome.runtime.sendMessage(
         {
           type: applyDnrType,
-          headers: stream.headers
+          headers
         },
         () => {
           if (chrome.runtime.lastError) {
@@ -1086,7 +1101,7 @@ async function executeDownloadTaskMode(targetId) {
 
     const mergedBytes = await downloader.downloadSegments(
       overlapping,
-      stream.headers,
+      headers,
       (progress) => {
         if (dlProgressBar) dlProgressBar.value = progress.percent;
         if (dlProgressPercentage) dlProgressPercentage.textContent = `${progress.percent}%`;

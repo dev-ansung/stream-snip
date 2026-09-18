@@ -81,3 +81,40 @@ test('StateManager persists and restores isUserCustomFilename flag', async () =>
 
   delete global.chrome;
 });
+
+test('StateManager saveStateImmediate persists immediately without debounce delay', async () => {
+  const fakeStore = {};
+  global.chrome = {
+    storage: {
+      local: {
+        get: async (keys) => {
+          const res = {};
+          keys.forEach((k) => {
+            if (fakeStore[k]) res[k] = fakeStore[k];
+          });
+          return res;
+        },
+        set: async (obj) => {
+          Object.assign(fakeStore, obj);
+        },
+        remove: async (keys) => {
+          keys.forEach((k) => delete fakeStore[k]);
+        }
+      }
+    }
+  };
+
+  const sm = new StateManagerClass({ debounceMs: 5000 });
+  await sm.saveStateImmediate(202, {
+    streamUrl: 'https://example.com/immediate.m3u8',
+    headers: { Referer: 'https://example.com' }
+  });
+
+  // State must be accessible immediately without waiting for 5000ms debounce
+  const state = await sm.loadState(202);
+  assert.ok(state);
+  assert.equal(state.streamUrl, 'https://example.com/immediate.m3u8');
+  assert.equal(state.headers.Referer, 'https://example.com');
+
+  delete global.chrome;
+});
