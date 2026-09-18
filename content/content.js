@@ -6,20 +6,38 @@
 
 (function () {
   const trackedVideos = new WeakSet();
+  let seekingDebounceTimer = null;
 
-  function isLikelyMainVideo(video) {
-    if (!video) return false;
-    const width = video.videoWidth || video.clientWidth || 0;
-    const height = video.videoHeight || video.clientHeight || 0;
-    // Consider it main if it's playing, or has substantial dimensions, or has duration > 10s
-    if (!video.paused && video.currentTime > 0) return true;
-    if (width >= 240 && height >= 140) return true;
-    if (video.duration && video.duration > 10) return true;
-    return false;
+  /**
+   * Recursively finds all HTML5 video elements in a root or document,
+   * including those nested within Shadow DOM roots.
+   */
+  function findAllVideos(root = document) {
+    const videos = [];
+    if (!root) return videos;
+
+    try {
+      if (root.querySelectorAll) {
+        root.querySelectorAll('video').forEach((v) => videos.push(v));
+
+        // Traverse shadow roots for custom Web Components / video wrappers
+        root.querySelectorAll('*').forEach((el) => {
+          if (el.shadowRoot) {
+            videos.push(...findAllVideos(el.shadowRoot));
+          }
+        });
+      }
+    } catch {
+      // Ignored if querying restricted elements
+    }
+    return videos;
   }
 
+  /**
+   * Finds the most relevant video element on the current frame or page.
+   */
   function findPrimaryVideo() {
-    const videos = Array.from(document.querySelectorAll('video'));
+    const videos = findAllVideos(document);
     if (videos.length === 0) return null;
     if (videos.length === 1) return videos[0];
 
@@ -40,36 +58,70 @@
     return largest || videos[0];
   }
 
+  /**
+   * Dispatches the video seek/playhead time to the extension background and side panel.
+   */
   function handleVideoSeek(video) {
-    if (!video || !isLikelyMainVideo(video)) return;
+    if (!video) return;
     if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
+
+    const currentTime = typeof video.currentTime === 'number' ? video.currentTime : 0;
+    const duration = typeof video.duration === 'number' ? video.duration : 0;
+    const paused = Boolean(video.paused);
+
+    console.info('[StegoClip:Content] Video seek detected:', {
+      currentTime,
+      duration,
+      paused
+    });
 
     try {
       chrome.runtime
         .sendMessage({
           type: 'TAB_MEDIA_SEEK',
-          currentTime: video.currentTime,
-          duration: video.duration || 0,
-          paused: video.paused
+          currentTime,
+          duration,
+          paused
         })
         .catch(() => {
-          // Ignored when popup is not listening
+          // Ignored when side panel / popup is not actively listening
         });
     } catch {
       // Ignored
     }
   }
 
+  function onVideoSeeking(video) {
+    if (seekingDebounceTimer) clearTimeout(seekingDebounceTimer);
+    seekingDebounceTimer = setTimeout(() => {
+      handleVideoSeek(video);
+    }, 80);
+  }
+
+  function onVideoSeeked(video) {
+    if (seekingDebounceTimer) {
+      clearTimeout(seekingDebounceTimer);
+      seekingDebounceTimer = null;
+    }
+    handleVideoSeek(video);
+  }
+
+  /**
+   * Attaches seek listeners to a video element if not already observed.
+   */
   function attachVideoListeners(video) {
     if (!video || trackedVideos.has(video)) return;
     trackedVideos.add(video);
 
-    video.addEventListener('seeked', () => handleVideoSeek(video), { passive: true });
+    console.info('[StegoClip:Content] Attached seek listeners to video element:', video);
+
+    video.addEventListener('seeked', () => onVideoSeeked(video), { passive: true });
+    video.addEventListener('seeking', () => onVideoSeeking(video), { passive: true });
   }
 
   function observeDOM() {
-    // Attach to existing videos
-    document.querySelectorAll('video').forEach(attachVideoListeners);
+    // Attach to existing videos across DOM and Shadow DOM
+    findAllVideos(document).forEach(attachVideoListeners);
 
     // Observe dynamically added videos
     const observer = new MutationObserver((mutations) => {
@@ -79,19 +131,19 @@
           if (node.tagName === 'VIDEO') {
             attachVideoListeners(node);
           } else if (node.querySelectorAll) {
-            node.querySelectorAll('video').forEach(attachVideoListeners);
+            findAllVideos(node).forEach(attachVideoListeners);
           }
         }
       }
     });
 
-    if (document.body) {
-      observer.observe(document.body, { childList: true, subtree: true });
+    const target = document.body || document.documentElement;
+    if (target) {
+      observer.observe(target, { childList: true, subtree: true });
     } else {
       document.addEventListener('DOMContentLoaded', () => {
-        if (document.body) {
-          observer.observe(document.body, { childList: true, subtree: true });
-        }
+        const t = document.body || document.documentElement;
+        if (t) observer.observe(t, { childList: true, subtree: true });
       });
     }
   }
@@ -126,7 +178,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      isLikelyMainVideo,
+      findAllVideos,
       findPrimaryVideo,
       handleVideoSeek,
       attachVideoListeners

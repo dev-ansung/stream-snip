@@ -604,7 +604,7 @@ if (syncTabSeekToggle) {
 }
 
 // Synchronize preview player when seek occurs on the host webpage player, or reload on STREAM_DETECTED
-chrome.runtime.onMessage.addListener((message, sender) => {
+chrome.runtime.onMessage.addListener(async (message, sender) => {
   const isStreamDetectedMsg =
     message?.type === 'STREAM_DETECTED' ||
     (typeof StegoConstants !== 'undefined' &&
@@ -623,11 +623,33 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       message?.type === StegoConstants.MSG_TYPES.TAB_MEDIA_SEEK);
 
   if (isSeekMsg && typeof message.currentTime === 'number') {
+    console.info(
+      '[StegoClip:Popup] Received TAB_MEDIA_SEEK:',
+      message,
+      'sender tab:',
+      sender?.tab?.id,
+      'currentTabId:',
+      currentTabId
+    );
+
     if (sender?.tab?.id && currentTabId && sender.tab.id !== currentTabId) {
-      return;
+      // Check if the sender is actually the user's currently active tab
+      try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTab && activeTab.id === sender.tab.id) {
+          console.info('[StegoClip:Popup] Adopting sender as active currentTabId:', sender.tab.id);
+          currentTabId = sender.tab.id;
+        } else {
+          console.info('[StegoClip:Popup] Ignored seek from background tab:', sender.tab.id);
+          return;
+        }
+      } catch {
+        return;
+      }
     }
 
     if (syncTabSeekToggle && !syncTabSeekToggle.checked) {
+      console.info('[StegoClip:Popup] Seek ignored because sync toggle is off');
       return;
     }
 

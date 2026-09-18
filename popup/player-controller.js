@@ -24,14 +24,31 @@ class PlayerControllerClass {
   init(videoEl, callbacks = {}) {
     this.videoEl = videoEl;
     this.callbacks = callbacks;
+    this.pendingSeekTime = null;
 
     if (this.videoEl) {
-      const dimensionHandler = () => this.handleDimensionsChange();
+      const metadataHandler = () => {
+        this.handleDimensionsChange();
+        this.applyPendingSeek();
+      };
       const events = ['loadedmetadata', 'resize', 'canplay', 'playing'];
       events.forEach((ev) => {
-        this.videoEl.addEventListener(ev, dimensionHandler);
-        this.boundVideoListeners.push({ event: ev, handler: dimensionHandler });
+        this.videoEl.addEventListener(ev, metadataHandler);
+        this.boundVideoListeners.push({ event: ev, handler: metadataHandler });
       });
+    }
+  }
+
+  applyPendingSeek() {
+    if (typeof this.pendingSeekTime === 'number' && this.videoEl && this.videoEl.readyState >= 1) {
+      const target = this.pendingSeekTime;
+      this.pendingSeekTime = null;
+      try {
+        this.videoEl.currentTime = target;
+        console.info(`[StegoClip:PlayerController] Applied queued seek: ${target}s`);
+      } catch (err) {
+        console.warn('[StegoClip:PlayerController] Error applying queued seek:', err);
+      }
     }
   }
 
@@ -57,6 +74,7 @@ class PlayerControllerClass {
   }
 
   resetMediaInfo() {
+    this.pendingSeekTime = null;
     this.mediaInfo.width = 0;
     this.mediaInfo.height = 0;
     this.mediaInfo.bitrate = 0;
@@ -84,10 +102,25 @@ class PlayerControllerClass {
 
   seekTo(seconds, driftThreshold = 0.5) {
     if (!this.videoEl || isNaN(seconds)) return false;
+
+    // Queue seek if video stream metadata is not yet available
+    if (this.videoEl.readyState < 1) {
+      console.info(
+        `[StegoClip:PlayerController] Preview not ready (readyState: ${this.videoEl.readyState}). Queued seek: ${seconds}s`
+      );
+      this.pendingSeekTime = seconds;
+      return true;
+    }
+
     const cur = this.videoEl.currentTime || 0;
     if (Math.abs(cur - seconds) > driftThreshold) {
-      this.videoEl.currentTime = seconds;
-      return true;
+      try {
+        this.videoEl.currentTime = seconds;
+        console.info(`[StegoClip:PlayerController] Preview seek applied to: ${seconds}s`);
+        return true;
+      } catch (err) {
+        console.warn('[StegoClip:PlayerController] Error seeking preview video:', err);
+      }
     }
     return false;
   }
