@@ -124,5 +124,19 @@ export default [
     rules: {
       'no-console': 'off'
     }
+  },
+
+  // Build & maintenance scripts
+  {
+    files: ['scripts/**/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        ...globals.node
+      }
+    },
+    rules: {
+      'no-console': 'off'
+    }
   }
 ];
