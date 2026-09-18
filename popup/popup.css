@@ -1,6 +1,8 @@
-/* Base styles for compact popup mode */
+/* Base styles for sidebar panel and compact mode */
 body {
-  width: 440px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   margin: 0;
   padding: 12px;
   font-family:

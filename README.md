@@ -1,17 +1,19 @@
 # StegoClip - Standalone Chrome Extension for HLS Video Clipping
 
-A lightweight standalone Google Chrome Extension (Manifest V3) that intercepts HLS (`.m3u8`) streaming playlists in real time, decodes steganographically wrapped video segments (PNG/image wrappers), provides an in-popup video preview player, and allows clipping videos from a specified start time to end time.
+A lightweight standalone Google Chrome Extension (Manifest V3) that intercepts HLS (`.m3u8`) streaming playlists in real time, decodes steganographically wrapped video segments (PNG/image wrappers), provides an in-browser Side Panel video preview player, and allows clipping videos from a specified start time to end time.
 
 ## Key Features
 
+- **Native Persistent Chrome Side Panel**: Docks neatly alongside the webpage so you can interact with the page's video player, seek, and browse without dismissing the clipper UI.
 - **Native In-Browser Authentication**: All segment requests are made directly in your browser session with authenticated cookies and headers, completely eliminating 403 Forbidden errors from ephemeral CDN tokens.
 - **Pure JavaScript Faststart MP4 Generation**: Converts fragmented MP4 streams into standard progressive `[ftyp][moov][mdat]` files with sample tables (`stts`, `stss`, `ctts`, `stsz`, `stsc`, `stco`) for seamless compatibility with QuickTime Player, macOS Finder preview, and iOS devices.
-- **Dedicated Full-Page Studio Mode**: Expand from the extension popup into a full-page workspace (`popup.html?mode=full`) to manage long streams and inspect media properties without accidental popup closures.
-- **In-Popup Video Preview**: Built-in player powered by `hls.js` with a custom `StegoFragmentLoader` to preview and scrub both normal and steganographic streams.
+- **Dedicated Full-Page Studio Mode**: Expand from the sidebar into a full-page workspace (`popup.html?mode=full`) to manage long streams and inspect media properties on a larger canvas.
+- **Side Panel Video Preview**: Built-in player powered by `hls.js` with a custom `StegoFragmentLoader` to preview and scrub both normal and steganographic streams.
 - **One-Click Range Pickers**: Click "⏱️ Current" while watching the video preview to lock in your start and end clipping timestamps.
 - **Automatic Steganography Stripping**: Transparently detects dummy 1x1 PNG headers and extracts raw MPEG-TS video payloads.
 - **Concurrent Chunk Downloader**: Downloads only the overlapping segments concurrently and saves the assembled `.mp4` or `.ts` video to your Downloads folder.
 - **Live Tab Seek Synchronization**: Automatically follows seek / scrub events on the webpage video player so you can navigate directly in your browser player while previewing in StegoClip. Includes a "🔗 Sync" toggle.
+- **Active Tab Tracking**: Seamlessly switches context and streams when you click between different browser tabs with the sidebar open.
 - **Resource Management & Safety**: Automatic Blob URL lifecycle management revokes object URLs via `chrome.downloads.onChanged` immediately upon download completion, preventing memory leaks on large downloads.
 
 ## Architecture

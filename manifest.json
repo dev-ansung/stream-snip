@@ -10,7 +10,8 @@
     "downloads",
     "activeTab",
     "tabs",
-    "webNavigation"
+    "webNavigation",
+    "sidePanel"
   ],
   "host_permissions": ["<all_urls>"],
   "content_scripts": [
@@ -21,11 +22,14 @@
       "run_at": "document_idle"
     }
   ],
+  "side_panel": {
+    "default_path": "popup/popup.html"
+  },
   "background": {
     "service_worker": "background/service_worker.js"
   },
   "action": {
-    "default_popup": "popup/popup.html",
+    "default_title": "Open StegoClip Side Panel",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

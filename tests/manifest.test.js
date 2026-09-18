@@ -40,14 +40,17 @@ test('manifest references existing background service worker', () => {
   );
 });
 
-test('manifest references existing popup and icons', () => {
+test('manifest references existing side panel and icons', () => {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
-  assert.ok(manifest.action, 'manifest must declare action');
-  assert.ok(manifest.action.default_popup, 'action must declare default_popup');
+  assert.ok(manifest.side_panel, 'manifest must declare side_panel');
+  assert.ok(manifest.side_panel.default_path, 'side_panel must declare default_path');
 
-  const popupPath = path.join(rootDir, manifest.action.default_popup);
-  assert.ok(fs.existsSync(popupPath), `Popup file ${manifest.action.default_popup} must exist`);
+  const sidePanelPath = path.join(rootDir, manifest.side_panel.default_path);
+  assert.ok(
+    fs.existsSync(sidePanelPath),
+    `Side panel file ${manifest.side_panel.default_path} must exist`
+  );
 
   const iconSizes = ['16', '48', '128'];
   for (const size of iconSizes) {
@@ -69,7 +72,14 @@ test('manifest permissions contain expected MV3 permissions', () => {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
   assert.ok(Array.isArray(manifest.permissions), 'permissions must be an array');
-  const expectedPerms = ['webRequest', 'storage', 'downloads', 'activeTab', 'webNavigation'];
+  const expectedPerms = [
+    'webRequest',
+    'storage',
+    'downloads',
+    'activeTab',
+    'webNavigation',
+    'sidePanel'
+  ];
   for (const perm of expectedPerms) {
     assert.ok(manifest.permissions.includes(perm), `Permissions must include ${perm}`);
   }

@@ -805,6 +805,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   requestStreams(targetId);
 
+  // If running in side panel, switch stream focus when user switches browser tabs
+  if (!tabIdFromUrl && typeof chrome !== 'undefined' && chrome.tabs?.onActivated) {
+    chrome.tabs.onActivated.addListener(async (activeInfo) => {
+      // Avoid interrupting active downloads
+      if (activeAbortController) return;
+      currentDefaultBaseName = '';
+      userCustomBaseName = null;
+      try {
+        const tab = await chrome.tabs.get(activeInfo.tabId);
+        if (tab?.title) {
+          const detected = StegoTime.cleanTitleForFilename(tab.title);
+          if (detected) currentDefaultBaseName = detected;
+        }
+      } catch {}
+      requestStreams(activeInfo.tabId);
+    });
+  }
+
   // If streams are still empty, retry once after 1200ms in case video player was still initializing
   setTimeout(() => {
     if (currentStreams.length === 0) {

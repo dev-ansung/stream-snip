@@ -88,6 +88,13 @@ async function loadPersistedState() {
 // Load persisted state immediately on service worker bootstrap
 loadPersistedState();
 
+// Configure action button to open side panel
+if (typeof chrome !== 'undefined' && chrome.sidePanel?.setPanelBehavior) {
+  chrome.sidePanel
+    .setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((err) => console.warn('[ServiceWorker] Failed setting sidePanel behavior:', err));
+}
+
 // Track tab updates to keep page title in sync
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (tab?.title) {
