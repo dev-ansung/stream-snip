@@ -3,6 +3,12 @@
  * Sniffs M3U8 streaming requests and preserves session headers per tab.
  */
 
+try {
+  importScripts('../lib/constants.js');
+} catch {
+  // Ignored in non-worker environments (e.g. tests)
+}
+
 const tabStreams = new Map();
 const tabMetadata = new Map();
 
@@ -31,10 +37,11 @@ async function persistState() {
     for (const [k, v] of tabMetadata.entries()) {
       metaObj[k] = v;
     }
+    const storageKeys = typeof StegoConstants !== 'undefined' ? StegoConstants.STORAGE_KEYS : null;
     await chrome.storage.local.set({
-      tabStreams: streamsObj,
-      tabMetadata: metaObj,
-      lastActiveMediaTabId
+      [storageKeys?.TAB_STREAMS || 'tabStreams']: streamsObj,
+      [storageKeys?.TAB_METADATA || 'tabMetadata']: metaObj,
+      [storageKeys?.LAST_ACTIVE_TAB_ID || 'lastActiveMediaTabId']: lastActiveMediaTabId
     });
   } catch (err) {
     console.error('Failed to persist state:', err);
@@ -88,7 +95,11 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
       chrome.action.setBadgeText({ tabId, text: '' });
     } catch {}
     try {
-      await chrome.storage.local.remove([`stego_popup_state_${tabId}`]);
+      const stateKey =
+        typeof StegoConstants !== 'undefined'
+          ? StegoConstants.getPopupStateKey(tabId)
+          : `stego_popup_state_${tabId}`;
+      await chrome.storage.local.remove([stateKey]);
     } catch {}
     await persistState();
   }
@@ -99,7 +110,11 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   tabStreams.delete(tabId);
   tabMetadata.delete(tabId);
   try {
-    await chrome.storage.local.remove([`stego_popup_state_${tabId}`]);
+    const stateKey =
+      typeof StegoConstants !== 'undefined'
+        ? StegoConstants.getPopupStateKey(tabId)
+        : `stego_popup_state_${tabId}`;
+    await chrome.storage.local.remove([stateKey]);
   } catch {}
   await persistState();
 });

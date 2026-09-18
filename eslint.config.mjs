@@ -34,7 +34,8 @@ export default [
       globals: {
         ...globals.serviceworker,
         ...globals.webextensions,
-        chrome: 'readonly'
+        chrome: 'readonly',
+        StegoConstants: 'readonly'
       }
     },
     rules: {
@@ -57,12 +58,16 @@ export default [
         chrome: 'readonly',
         Hls: 'readonly',
         muxjs: 'readonly',
+        StegoConstants: 'readonly',
         StegoDecoder: 'readonly',
         StegoTime: 'readonly',
         StegoParser: 'readonly',
         StegoDownloader: 'readonly',
         StegoFragmentLoader: 'readonly',
-        StegoTransmuxer: 'readonly'
+        StegoTransmuxer: 'readonly',
+        UiFeedback: 'readonly',
+        PlayerController: 'readonly',
+        StateManager: 'readonly'
       }
     }
   },
@@ -83,7 +88,8 @@ export default [
         StegoParser: 'readonly',
         StegoDownloader: 'readonly',
         StegoFragmentLoader: 'readonly',
-        StegoTransmuxer: 'readonly'
+        StegoTransmuxer: 'readonly',
+        StegoConstants: 'readonly'
       }
     }
   },
