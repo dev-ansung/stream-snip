@@ -182,7 +182,7 @@ function savePopupState() {
     filename: filenameInput?.value || '',
     userCustomBaseName: userCustomBaseName || '',
     format: formatSelect?.value || 'mp4',
-    syncWithTab: syncTabSeekToggle ? syncTabSeekToggle.checked : true
+    syncWithTab: syncTabSeekToggle ? syncTabSeekToggle.checked : false
   });
 }
 
@@ -597,11 +597,44 @@ streamSelect.addEventListener('change', () => {
   }
 });
 
+async function sendSyncStateToPage(enabled, tabId = currentTabId) {
+  if (!tabId || typeof chrome === 'undefined' || !chrome.tabs?.sendMessage) return;
+  const expectedDuration = PlayerController.getDuration();
+  const type = enabled
+    ? typeof StegoConstants !== 'undefined'
+      ? StegoConstants.MSG_TYPES.ENABLE_TAB_SEEK_SYNC
+      : 'ENABLE_TAB_SEEK_SYNC'
+    : typeof StegoConstants !== 'undefined'
+      ? StegoConstants.MSG_TYPES.DISABLE_TAB_SEEK_SYNC
+      : 'DISABLE_TAB_SEEK_SYNC';
+
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type,
+      expectedDuration
+    });
+    console.info(
+      `[StegoClip:Popup] Dispatched ${type} (expectedDuration: ${expectedDuration.toFixed(2)}s) to tab ${tabId}`
+    );
+  } catch {
+    // Ignored if tab does not have content script running
+  }
+}
+
 if (syncTabSeekToggle) {
-  syncTabSeekToggle.addEventListener('change', () => {
+  syncTabSeekToggle.addEventListener('change', async () => {
+    const isEnabled = syncTabSeekToggle.checked;
+    await sendSyncStateToPage(isEnabled);
     savePopupState();
+    UiFeedback.info(isEnabled ? 'Live Tab Sync Enabled' : 'Live Tab Sync Disabled', 1200);
   });
 }
+
+window.addEventListener('beforeunload', () => {
+  if (syncTabSeekToggle?.checked && currentTabId) {
+    sendSyncStateToPage(false);
+  }
+});
 
 // Synchronize preview player when seek occurs on the host webpage player, or reload on STREAM_DETECTED
 chrome.runtime.onMessage.addListener(async (message, sender) => {
@@ -777,7 +810,8 @@ async function requestStreams(targetId) {
       updateClipDuration();
     }
 
-    if (currentTabId && (!syncTabSeekToggle || syncTabSeekToggle.checked)) {
+    if (currentTabId && syncTabSeekToggle?.checked) {
+      await sendSyncStateToPage(true);
       const getMediaTimeType =
         typeof StegoConstants !== 'undefined'
           ? StegoConstants.MSG_TYPES.GET_PAGE_MEDIA_TIME
@@ -851,6 +885,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.tabs.onActivated.addListener(async (activeInfo) => {
       // Avoid interrupting active downloads
       if (activeAbortController) return;
+      if (syncTabSeekToggle?.checked && currentTabId && currentTabId !== activeInfo.tabId) {
+        sendSyncStateToPage(false, currentTabId);
+      }
       currentDefaultBaseName = '';
       userCustomBaseName = null;
       try {
@@ -861,6 +898,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       } catch {}
       requestStreams(activeInfo.tabId);
+      if (syncTabSeekToggle?.checked) {
+        sendSyncStateToPage(true, activeInfo.tabId);
+      }
     });
   }
 

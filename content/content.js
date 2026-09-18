@@ -5,7 +5,7 @@
  */
 
 (function () {
-  const trackedVideos = new WeakSet();
+  const trackedVideos = new Map();
   let seekingDebounceTimer = null;
 
   /**
@@ -120,46 +120,93 @@
    */
   function attachVideoListeners(video) {
     if (!video || trackedVideos.has(video)) return;
-    trackedVideos.add(video);
 
+    const seekedHandler = () => onVideoSeeked(video);
+    const seekingHandler = () => onVideoSeeking(video);
+
+    trackedVideos.set(video, { seekedHandler, seekingHandler });
     console.info('[StegoClip:Content] Attached seek listeners to video element:', video);
 
-    video.addEventListener('seeked', () => onVideoSeeked(video), { passive: true });
-    video.addEventListener('seeking', () => onVideoSeeking(video), { passive: true });
+    video.addEventListener('seeked', seekedHandler, { passive: true });
+    video.addEventListener('seeking', seekingHandler, { passive: true });
   }
 
-  function observeDOM() {
-    // Attach to existing videos across DOM and Shadow DOM
-    findAllVideos(document).forEach(attachVideoListeners);
+  let activeObserver = null;
+  let isSyncActive = false;
 
-    // Observe dynamically added videos
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          if (node.nodeType !== Node.ELEMENT_NODE) continue;
-          if (node.tagName === 'VIDEO') {
-            attachVideoListeners(node);
-          } else if (node.querySelectorAll) {
-            findAllVideos(node).forEach(attachVideoListeners);
-          }
-        }
+  function startSync(expectedDuration = 0) {
+    if (isSyncActive) return;
+    isSyncActive = true;
+    console.info(
+      '[StegoClip:Content] Enabling seek sync on demand. expectedDuration:',
+      expectedDuration
+    );
+
+    const videos = findAllVideos(document);
+    videos.forEach((v) => {
+      // If expectedDuration is known and video duration is known, verify match
+      if (expectedDuration > 0 && v.duration && Math.abs(v.duration - expectedDuration) > 2.0) {
+        return;
       }
+      attachVideoListeners(v);
     });
 
-    const target = document.body || document.documentElement;
-    if (target) {
-      observer.observe(target, { childList: true, subtree: true });
-    } else {
-      document.addEventListener('DOMContentLoaded', () => {
-        const t = document.body || document.documentElement;
-        if (t) observer.observe(t, { childList: true, subtree: true });
+    if (!activeObserver && typeof MutationObserver !== 'undefined') {
+      activeObserver = new MutationObserver((mutations) => {
+        if (!isSyncActive) return;
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            if (node.nodeType !== Node.ELEMENT_NODE) continue;
+            if (node.tagName === 'VIDEO') {
+              attachVideoListeners(node);
+            } else if (node.querySelectorAll) {
+              findAllVideos(node).forEach(attachVideoListeners);
+            }
+          }
+        }
       });
+
+      const target = document.body || document.documentElement;
+      if (target) {
+        activeObserver.observe(target, { childList: true, subtree: true });
+      }
     }
   }
 
-  // Listen for queries from popup to get current playhead time
+  function stopSync() {
+    if (!isSyncActive) return;
+    isSyncActive = false;
+    console.info('[StegoClip:Content] Disabling seek sync, cleaning up observers & listeners');
+
+    if (activeObserver) {
+      activeObserver.disconnect();
+      activeObserver = null;
+    }
+
+    for (const [video, handlers] of trackedVideos.entries()) {
+      try {
+        video.removeEventListener('seeked', handlers.seekedHandler);
+        video.removeEventListener('seeking', handlers.seekingHandler);
+      } catch {}
+    }
+    trackedVideos.clear();
+  }
+
+  // Listen for control queries and sync toggle messages from extension side panel
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type === 'ENABLE_TAB_SEEK_SYNC') {
+        startSync(message?.expectedDuration || 0);
+        sendResponse({ success: true, active: true });
+        return false;
+      }
+
+      if (message?.type === 'DISABLE_TAB_SEEK_SYNC') {
+        stopSync();
+        sendResponse({ success: true, active: false });
+        return false;
+      }
+
       if (message?.type === 'GET_PAGE_MEDIA_TIME') {
         const primary = findPrimaryVideo(message?.expectedDuration || 0);
         if (primary) {
@@ -177,20 +224,15 @@
     });
   }
 
-  if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', observeDOM);
-    } else {
-      observeDOM();
-    }
-  }
-
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       findAllVideos,
       findPrimaryVideo,
       handleVideoSeek,
-      attachVideoListeners
+      attachVideoListeners,
+      startSync,
+      stopSync,
+      isSyncActive: () => isSyncActive
     };
   }
 })();

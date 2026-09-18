@@ -123,3 +123,37 @@ test('handleVideoSeek does not discard paused or zero-dimension video', () => {
 
   delete global.chrome;
 });
+
+test('startSync and stopSync manage listener lifecycle on demand', () => {
+  const { startSync, stopSync, isSyncActive } = require('../content/content.js');
+  const addedEvents = [];
+  const removedEvents = [];
+
+  const fakeVideo = {
+    tagName: 'VIDEO',
+    duration: 120,
+    addEventListener: (ev) => addedEvents.push(ev),
+    removeEventListener: (ev) => removedEvents.push(ev)
+  };
+
+  global.document = {
+    querySelectorAll: (sel) => {
+      if (sel === 'video') return [fakeVideo];
+      return [];
+    }
+  };
+
+  assert.equal(isSyncActive(), false);
+
+  startSync(120);
+  assert.equal(isSyncActive(), true);
+  assert.ok(addedEvents.includes('seeked'));
+  assert.ok(addedEvents.includes('seeking'));
+
+  stopSync();
+  assert.equal(isSyncActive(), false);
+  assert.ok(removedEvents.includes('seeked'));
+  assert.ok(removedEvents.includes('seeking'));
+
+  delete global.document;
+});
