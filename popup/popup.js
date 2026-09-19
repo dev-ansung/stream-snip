@@ -451,15 +451,8 @@ async function executeDownload() {
     progressStatus.textContent = getFinalizeStatusLabel(fmt);
     const base = filenameInput.value.trim().replace(/\.(mp4|ts|mp3)$/i, '') || 'video_clip';
     const filename = `${base}.${fmt}`;
-    const firstSegmentStart = overlapping[0]?.start || 0;
-    const trimStart = Math.max(0, startSec - firstSegmentStart);
-    const clipDuration = Math.max(0, endSec - startSec);
-    const trimEnd = trimStart + clipDuration;
-    await downloader.saveToFile(mergedBytes, filename, fmt, clipDuration, {
-      trimStart,
-      trimEnd,
-      duration: clipDuration
-    });
+    const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
+    await downloader.saveToFile(mergedBytes, filename, fmt, clipDuration);
     progressStatus.textContent = `✅ Saved ${filename} successfully!`;
     UiFeedback.success(`Saved ${filename} successfully!`);
   } catch (err) {
@@ -1117,11 +1110,7 @@ async function executeDownloadTaskMode(targetId) {
       throw new Error('No video segments found in selected range.');
     }
 
-    const firstSegmentStart = overlapping[0]?.start || 0;
-    const trimStart = Math.max(0, startSec - firstSegmentStart);
-    const clipDuration = Math.max(0, endSec - startSec);
-    const trimEnd = trimStart + clipDuration;
-
+    const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
     if (dlClipRange) {
       dlClipRange.textContent = `${StegoTime.formatDuration(startSec)} - ${StegoTime.formatDuration(
         endSec
@@ -1158,11 +1147,7 @@ async function executeDownloadTaskMode(targetId) {
     }
     if (dlStatusBadge) dlStatusBadge.textContent = 'Finalizing';
 
-    await downloader.saveToFile(mergedBytes, finalFilename, fmt, clipDuration, {
-      trimStart,
-      trimEnd,
-      duration: clipDuration
-    });
+    await downloader.saveToFile(mergedBytes, finalFilename, fmt, clipDuration);
 
     document.title = `✅ Finished ${finalFilename}`;
     if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Download completed successfully!';
