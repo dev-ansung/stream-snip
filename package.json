@@ -1,16 +1,16 @@
 {
-  "name": "stego-clip-extension",
+  "name": "stream-snip",
   "version": "1.0.0",
-  "description": "Standalone Chrome Extension for M3U8 Stream Interception & Time-Range Clipping with Stego Decoding",
+  "description": "Lossless HLS Video & Audio Clipper Chrome Extension",
   "license": "MIT",
   "author": "dev-ansung",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dev-ansung/stego-clip-extension.git"
+    "url": "https://github.com/dev-ansung/stream-snip.git"
   },
-  "homepage": "https://github.com/dev-ansung/stego-clip-extension#readme",
+  "homepage": "https://github.com/dev-ansung/stream-snip#readme",
   "bugs": {
-    "url": "https://github.com/dev-ansung/stego-clip-extension/issues"
+    "url": "https://github.com/dev-ansung/stream-snip/issues"
   },
   "keywords": [
     "hls",

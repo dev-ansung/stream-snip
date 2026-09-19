@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "StegoClip - HLS Stream Clipper",
+  "name": "StreamSnip - Lossless HLS Video & Audio Clipper",
   "version": "1.0.0",
-  "description": "Intercepts HLS M3U8 video streams, decodes steganography, previews playback, and clips by time range.",
+  "description": "Intercepts HLS M3U8 video streams, previews playback, and losslessly clips by time range with sub-second precision.",
   "permissions": [
     "webRequest",
     "declarativeNetRequestWithHostAccess",

@@ -10,7 +10,7 @@ if (!fs.existsSync(distDir)) {
   fs.mkdirSync(distDir, { recursive: true });
 }
 
-const zipName = `stego-clip-extension-v${pkg.version}.zip`;
+const zipName = `stream-snip-v${pkg.version}.zip`;
 const zipPath = path.join(distDir, zipName);
 
 if (fs.existsSync(zipPath)) {
@@ -28,7 +28,7 @@ const filesToInclude = [
   'README.md'
 ];
 
-console.log(`Packaging StegoClip v${pkg.version} into ${zipName}...`);
+console.log(`Packaging StreamSnip v${pkg.version} into ${zipName}...`);
 
 const cmd = `zip -r -q "${zipPath}" ${filesToInclude.join(' ')} -x "*.DS_Store" "*__MACOSX*"`;
 execSync(cmd, { cwd: rootDir, stdio: 'inherit' });
