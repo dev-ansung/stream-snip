@@ -68,6 +68,23 @@ function getHeightLabel(height) {
   return `${height}p`;
 }
 
+function getFinalizeStatusLabel(fmt) {
+  if (fmt === 'mp4') return 'Transmuxing to MP4...';
+  if (fmt === 'mp3') return 'Extracting & encoding MP3...';
+  return 'Saving file...';
+}
+
+// StegoConstants may not be loaded yet (or at all, in the Node test
+// environment) — these fall back to the raw key/default rather than
+// repeating the same typeof-guard ternary at every call site.
+function getMsgType(key) {
+  return (typeof StegoConstants !== 'undefined' && StegoConstants.MSG_TYPES?.[key]) || key;
+}
+
+function getConcurrency() {
+  return (typeof StegoConstants !== 'undefined' && StegoConstants.CONFIG?.DEFAULT_CONCURRENCY) || 6;
+}
+
 function formatCodecName(c) {
   if (!c) return '';
   if (c.startsWith('avc1') || c.startsWith('avc3')) return 'H.264 (AVC)';
@@ -340,10 +357,7 @@ async function loadStream(stream) {
   selectedStream = stream;
   videoInfoEl.textContent = 'Discovering media qualities...';
 
-  const msgType =
-    typeof StegoConstants !== 'undefined'
-      ? StegoConstants.MSG_TYPES.APPLY_DNR_RULES
-      : 'APPLY_DNR_RULES';
+  const msgType = getMsgType('APPLY_DNR_RULES');
   chrome.runtime.sendMessage({
     type: msgType,
     headers: stream.headers
@@ -351,10 +365,7 @@ async function loadStream(stream) {
 
   try {
     let manifestUrl = stream.url;
-    if (
-      stream.url.includes('index-f') ||
-      (!stream.url.includes('master') && stream.url.includes('index'))
-    ) {
+    if (!stream.url.includes('master') && stream.url.includes('index')) {
       const masterCandidate = currentStreams.find((s) => s.url.includes('master'));
       if (masterCandidate) manifestUrl = masterCandidate.url;
     }
@@ -420,8 +431,7 @@ async function executeDownload() {
   progressStatus.textContent = `Downloading 0/${overlapping.length} segments (0%)...`;
 
   activeAbortController = new AbortController();
-  const concurrency =
-    typeof StegoConstants !== 'undefined' ? StegoConstants.CONFIG.DEFAULT_CONCURRENCY : 6;
+  const concurrency = getConcurrency();
   const downloader = new StegoDownloader.SegmentDownloader({ concurrency });
   const fmt = formatSelect ? formatSelect.value : 'mp4';
 
@@ -438,8 +448,8 @@ async function executeDownload() {
       activeAbortController.signal
     );
 
-    progressStatus.textContent = fmt === 'mp4' ? 'Transmuxing to MP4...' : 'Saving file...';
-    const base = filenameInput.value.trim().replace(/\.(mp4|ts)$/i, '') || 'video_clip';
+    progressStatus.textContent = getFinalizeStatusLabel(fmt);
+    const base = filenameInput.value.trim().replace(/\.(mp4|ts|mp3)$/i, '') || 'video_clip';
     const filename = `${base}.${fmt}`;
     const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
     await downloader.saveToFile(mergedBytes, filename, fmt, clipDuration);
@@ -466,15 +476,8 @@ function formatStreamTitle(stream, idx) {
     const parts = u.pathname.split('/').filter(Boolean);
     const file = parts.pop() || 'master.m3u8';
 
-    if (file.includes('master') || stream.url.includes('urlset/master')) {
+    if (file.includes('master')) {
       return `[Master] Multi-Quality Stream • ${u.hostname}`;
-    }
-
-    const fc2 = file.match(/index-f([1-4])-/i);
-    if (fc2) {
-      const tierMap = { 1: '1080p Full HD', 2: '720p HD', 3: '480p SD', 4: '360p Low' };
-      const quality = tierMap[fc2[1]] || `F${fc2[1]}`;
-      return `[${quality}] ${u.hostname} • ${file}`;
     }
 
     const resMatch = file.match(/(2160|1440|1080|720|480|360)p/i);
@@ -488,27 +491,100 @@ function formatStreamTitle(stream, idx) {
   }
 }
 
+// Rebuilds the stream <select> and related UI from currentStreams as they
+// already are in memory. Does not touch chrome.runtime/chrome.tabs, the
+// title, or sync state — pure re-render of already-known data.
+function renderStreamList() {
+  streamCountBadge.textContent = `${currentStreams.length} stream${currentStreams.length === 1 ? '' : 's'}`;
+
+  streamSelect.innerHTML = '';
+
+  if (currentStreams.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No M3U8 streams detected on this tab';
+    streamSelect.appendChild(opt);
+    videoInfoEl.textContent = 'Play a video on the page to intercept its stream.';
+    btnDownload.disabled = true;
+    return false;
+  }
+
+  currentStreams.sort((a, b) => {
+    const aIsMaster = a.url.includes('master') ? 1 : 0;
+    const bIsMaster = b.url.includes('master') ? 1 : 0;
+    return bIsMaster - aIsMaster;
+  });
+
+  btnDownload.disabled = false;
+  currentStreams.forEach((s, idx) => {
+    const opt = document.createElement('option');
+    opt.value = s.url;
+    opt.textContent = formatStreamTitle(s, idx);
+    streamSelect.appendChild(opt);
+  });
+
+  const previousSelection = selectedStream?.url;
+  const matched = previousSelection && currentStreams.find((s) => s.url === previousSelection);
+  if (matched) {
+    streamSelect.value = matched.url;
+  }
+
+  return true;
+}
+
+// Points the sidebar at tabId exactly like switching browser tabs does:
+// stop sync on whatever tab it was previously pointed at (so the content
+// script drops its stale video reference instead of no-op'ing on restart),
+// reset the detected title/filename, re-fetch streams for tabId (which
+// reloads the player against the current stream), then re-enable sync.
+async function focusTab(tabId) {
+  if (!tabId || activeAbortController) return;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (
+      !tab?.url ||
+      tab.url.startsWith('chrome-extension://') ||
+      tab.url.startsWith('chrome://') ||
+      tab.url.startsWith('devtools://') ||
+      tab.url.startsWith('edge://') ||
+      tab.url.startsWith('about:')
+    ) {
+      console.info('[StegoClip:Popup] Ignoring non-content tab:', tab?.url);
+      return;
+    }
+
+    if (currentTabId) {
+      sendSyncStateToPage(false, currentTabId);
+    }
+    currentDefaultBaseName = '';
+    userCustomBaseName = null;
+    const live = await resolveDocumentTitle(tabId);
+    if (live && !StegoTime.isGenericBase(live)) {
+      currentDefaultBaseName = live;
+    } else if (tab?.title) {
+      const detected = StegoTime.cleanTitleForFilename(tab.title);
+      if (detected) currentDefaultBaseName = detected;
+    }
+    await requestStreams(tabId);
+    sendSyncStateToPage(true, tabId);
+  } catch (err) {
+    console.warn('[StegoClip:Popup] Failed to focus tab:', err);
+  }
+}
+
 // Event Listeners Wiring
 if (btnRefreshStreams) {
   btnRefreshStreams.addEventListener('click', async () => {
     btnRefreshStreams.disabled = true;
     try {
-      if (!currentTabId && typeof chrome !== 'undefined' && chrome.tabs?.query) {
+      let targetId = null;
+      if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.id) currentTabId = tab.id;
+        targetId = tab?.id || null;
       }
-      if (currentTabId) {
-        const liveTitle = await resolveDocumentTitle(currentTabId);
-        if (liveTitle && !StegoTime.isGenericBase(liveTitle)) {
-          currentDefaultBaseName = liveTitle;
-          if (!userCustomBaseName) {
-            updateFilenameTimestamps();
-          }
-        }
-        await requestStreams(currentTabId);
-        sendSyncStateToPage(true, currentTabId);
-      }
-      UiFeedback.info('Streams refreshed.');
+      if (!targetId) targetId = currentTabId;
+      await focusTab(targetId);
+      UiFeedback.info('Sidebar refreshed.');
     } catch (err) {
       console.warn('[StegoClip:Popup] Failed to refresh streams:', err);
       UiFeedback.error('Failed to refresh streams.');
@@ -603,7 +679,7 @@ if (filenameInput) {
 
   filenameInput.addEventListener('blur', () => {
     if (filenameInput.value) {
-      filenameInput.value = filenameInput.value.replace(/\.(mp4|ts)$/i, '');
+      filenameInput.value = filenameInput.value.replace(/\.(mp4|ts|mp3)$/i, '');
       const extracted = StegoTime.extractBaseName(filenameInput.value, currentDefaultBaseName);
       userCustomBaseName = extracted.base;
     }
@@ -616,7 +692,7 @@ if (formatSelect) {
     const fmt = formatSelect.value;
     btnDownload.textContent = `⬇️ Download ${fmt.toUpperCase()} Clip`;
     if (filenameInput.value) {
-      filenameInput.value = filenameInput.value.replace(/\.(mp4|ts)$/i, '');
+      filenameInput.value = filenameInput.value.replace(/\.(mp4|ts|mp3)$/i, '');
     }
     savePopupState();
   });
@@ -664,13 +740,7 @@ streamSelect.addEventListener('change', () => {
 async function sendSyncStateToPage(enabled, tabId = currentTabId) {
   if (!tabId || typeof chrome === 'undefined' || !chrome.tabs?.sendMessage) return;
   const expectedDuration = PlayerController.getDuration();
-  const type = enabled
-    ? typeof StegoConstants !== 'undefined'
-      ? StegoConstants.MSG_TYPES.ENABLE_TAB_SEEK_SYNC
-      : 'ENABLE_TAB_SEEK_SYNC'
-    : typeof StegoConstants !== 'undefined'
-      ? StegoConstants.MSG_TYPES.DISABLE_TAB_SEEK_SYNC
-      : 'DISABLE_TAB_SEEK_SYNC';
+  const type = getMsgType(enabled ? 'ENABLE_TAB_SEEK_SYNC' : 'DISABLE_TAB_SEEK_SYNC');
 
   try {
     await chrome.tabs.sendMessage(tabId, {
@@ -694,11 +764,7 @@ window.addEventListener('beforeunload', () => {
 // Synchronize preview player when seek occurs on the host webpage player, or reload on STREAM_DETECTED / title updates
 chrome.runtime.onMessage.addListener(async (message, sender) => {
   const isTitleUpdateMsg =
-    message?.type === 'STREAM_METADATA_UPDATED' ||
-    message?.type === 'PAGE_TITLE_CHANGED' ||
-    (typeof StegoConstants !== 'undefined' &&
-      (message?.type === StegoConstants.MSG_TYPES.STREAM_METADATA_UPDATED ||
-        message?.type === StegoConstants.MSG_TYPES.PAGE_TITLE_CHANGED));
+    message?.type === 'STREAM_METADATA_UPDATED' || message?.type === 'PAGE_TITLE_CHANGED';
 
   if (isTitleUpdateMsg) {
     if (!currentTabId || !message.tabId || message.tabId === currentTabId) {
@@ -727,22 +793,28 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
     return;
   }
 
-  const isStreamDetectedMsg =
-    message?.type === 'STREAM_DETECTED' ||
-    (typeof StegoConstants !== 'undefined' &&
-      message?.type === StegoConstants.MSG_TYPES.STREAM_DETECTED);
+  const isStreamDetectedMsg = message?.type === 'STREAM_DETECTED';
 
   if (isStreamDetectedMsg) {
-    if (!currentTabId || message.tabId === currentTabId || currentStreams.length === 0) {
-      requestStreams(currentTabId || message.tabId);
+    let shouldAdopt =
+      !currentTabId || message.tabId === currentTabId || currentStreams.length === 0;
+    if (!shouldAdopt && typeof chrome !== 'undefined' && chrome.tabs?.query) {
+      try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTab && activeTab.id === message.tabId) {
+          shouldAdopt = true;
+        }
+      } catch {}
+    }
+
+    if (shouldAdopt) {
+      currentTabId = message.tabId;
+      requestStreams(message.tabId);
     }
     return;
   }
 
-  const isSeekMsg =
-    message?.type === 'TAB_MEDIA_SEEK' ||
-    (typeof StegoConstants !== 'undefined' &&
-      message?.type === StegoConstants.MSG_TYPES.TAB_MEDIA_SEEK);
+  const isSeekMsg = message?.type === 'TAB_MEDIA_SEEK';
 
   if (isSeekMsg && typeof message.currentTime === 'number') {
     console.info(
@@ -789,14 +861,11 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
 });
 
 async function requestStreams(targetId) {
-  const getStreamsType =
-    typeof StegoConstants !== 'undefined' ? StegoConstants.MSG_TYPES.GET_STREAMS : 'GET_STREAMS';
+  const getStreamsType = getMsgType('GET_STREAMS');
   return new Promise((resolve) => {
     chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, async (response) => {
       const received = response?.streams || [];
-      if (received.length > 0 || currentStreams.length === 0) {
-        currentStreams = received;
-      }
+      currentStreams = [...received];
       currentTabId = response?.tabId || targetId;
       streamCountBadge.textContent = `${currentStreams.length} stream${currentStreams.length === 1 ? '' : 's'}`;
 
@@ -818,32 +887,11 @@ async function requestStreams(targetId) {
         }
       }
 
-      streamSelect.innerHTML = '';
-
-      if (currentStreams.length === 0) {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = 'No M3U8 streams detected on this tab';
-        streamSelect.appendChild(opt);
-        videoInfoEl.textContent = 'Play a video on the page to intercept its stream.';
-        btnDownload.disabled = true;
+      if (!renderStreamList()) {
+        PlayerController.destroy();
         resolve();
         return;
       }
-
-      currentStreams.sort((a, b) => {
-        const aIsMaster = a.url.includes('master') ? 1 : 0;
-        const bIsMaster = b.url.includes('master') ? 1 : 0;
-        return bIsMaster - aIsMaster;
-      });
-
-      btnDownload.disabled = false;
-      currentStreams.forEach((s, idx) => {
-        const opt = document.createElement('option');
-        opt.value = s.url;
-        opt.textContent = formatStreamTitle(s, idx);
-        streamSelect.appendChild(opt);
-      });
 
       const state = await StateManager.loadState(currentTabId);
 
@@ -893,10 +941,7 @@ async function requestStreams(targetId) {
 
       if (currentTabId) {
         await sendSyncStateToPage(true);
-        const getMediaTimeType =
-          typeof StegoConstants !== 'undefined'
-            ? StegoConstants.MSG_TYPES.GET_PAGE_MEDIA_TIME
-            : 'GET_PAGE_MEDIA_TIME';
+        const getMediaTimeType = getMsgType('GET_PAGE_MEDIA_TIME');
         try {
           const previewDuration = PlayerController.getDuration();
           chrome.tabs.sendMessage(
@@ -963,12 +1008,9 @@ async function executeDownloadTaskMode(targetId) {
 
     // Load state saved by side panel
     let savedState = targetId ? await StateManager.loadState(targetId) : null;
+    const getStreamsType = getMsgType('GET_STREAMS');
 
     if (!savedState || !savedState.streamUrl) {
-      const getStreamsType =
-        typeof StegoConstants !== 'undefined'
-          ? StegoConstants.MSG_TYPES.GET_STREAMS
-          : 'GET_STREAMS';
       const streamsResp = await new Promise((resolve) => {
         chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, resolve);
       });
@@ -982,8 +1024,6 @@ async function executeDownloadTaskMode(targetId) {
       throw new Error('Stream configuration not found in local storage.');
     }
 
-    const getStreamsType =
-      typeof StegoConstants !== 'undefined' ? StegoConstants.MSG_TYPES.GET_STREAMS : 'GET_STREAMS';
     const streamsResp = await new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, resolve);
     });
@@ -998,10 +1038,7 @@ async function executeDownloadTaskMode(targetId) {
         ? savedState.headers
         : stream.headers || {};
 
-    const applyDnrType =
-      typeof StegoConstants !== 'undefined'
-        ? StegoConstants.MSG_TYPES.APPLY_DNR_RULES
-        : 'APPLY_DNR_RULES';
+    const applyDnrType = getMsgType('APPLY_DNR_RULES');
     await new Promise((resolve) => {
       chrome.runtime.sendMessage(
         {
@@ -1019,7 +1056,7 @@ async function executeDownloadTaskMode(targetId) {
 
     const variantUrl = savedState.variantUrl || savedState.streamUrl;
     const fmt = savedState.format || 'mp4';
-    const rawBase = (savedState.filename || 'video_clip').replace(/\.(mp4|ts)$/i, '');
+    const rawBase = (savedState.filename || 'video_clip').replace(/\.(mp4|ts|mp3)$/i, '');
     const finalFilename = `${rawBase}.${fmt}`;
 
     document.title = `📥 Downloading ${finalFilename}`;
@@ -1083,8 +1120,7 @@ async function executeDownloadTaskMode(targetId) {
     if (dlTaskSubtitle)
       dlTaskSubtitle.textContent = `Downloading ${overlapping.length} segments...`;
 
-    const concurrency =
-      typeof StegoConstants !== 'undefined' ? StegoConstants.CONFIG.DEFAULT_CONCURRENCY : 6;
+    const concurrency = getConcurrency();
     const downloader = new StegoDownloader.SegmentDownloader({ concurrency });
 
     const mergedBytes = await downloader.downloadSegments(
@@ -1107,7 +1143,7 @@ async function executeDownloadTaskMode(targetId) {
     );
 
     if (dlTaskSubtitle) {
-      dlTaskSubtitle.textContent = fmt === 'mp4' ? 'Transmuxing to MP4...' : 'Saving file...';
+      dlTaskSubtitle.textContent = getFinalizeStatusLabel(fmt);
     }
     if (dlStatusBadge) dlStatusBadge.textContent = 'Finalizing';
 
@@ -1198,40 +1234,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // If running in side panel, switch stream focus when user switches browser tabs
   if (!tabIdFromUrl && typeof chrome !== 'undefined' && chrome.tabs?.onActivated) {
-    chrome.tabs.onActivated.addListener(async (activeInfo) => {
-      // Avoid interrupting active downloads
-      if (activeAbortController) return;
-
-      try {
-        const tab = await chrome.tabs.get(activeInfo.tabId);
-        // Ignore extension pages (e.g. StegoClip download tab) and system URLs
-        if (
-          !tab?.url ||
-          tab.url.startsWith('chrome-extension://') ||
-          tab.url.startsWith('chrome://') ||
-          tab.url.startsWith('devtools://') ||
-          tab.url.startsWith('edge://') ||
-          tab.url.startsWith('about:')
-        ) {
-          console.info('[StegoClip:Popup] Ignoring non-content tab activation:', tab?.url);
-          return;
-        }
-
-        if (currentTabId && currentTabId !== activeInfo.tabId) {
-          sendSyncStateToPage(false, currentTabId);
-        }
-        currentDefaultBaseName = '';
-        userCustomBaseName = null;
-        const live = await resolveDocumentTitle(activeInfo.tabId);
-        if (live && !StegoTime.isGenericBase(live)) {
-          currentDefaultBaseName = live;
-        } else if (tab?.title) {
-          const detected = StegoTime.cleanTitleForFilename(tab.title);
-          if (detected) currentDefaultBaseName = detected;
-        }
-        requestStreams(activeInfo.tabId);
-        sendSyncStateToPage(true, activeInfo.tabId);
-      } catch {}
+    chrome.tabs.onActivated.addListener((activeInfo) => {
+      focusTab(activeInfo.tabId);
     });
   }
 

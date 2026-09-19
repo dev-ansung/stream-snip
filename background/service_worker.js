@@ -20,25 +20,61 @@ function getPopupStateKeySafe(tabId) {
   return `stego_popup_state_${tabId}`;
 }
 
+function getMsgTypeSafe(key) {
+  return (typeof StegoConstants !== 'undefined' && StegoConstants.MSG_TYPES?.[key]) || key;
+}
+
+// Stamps a tab's known streams with freshly-resolved page title/URL and
+// keeps streamMetadata in sync. Returns the tab's stream list (possibly
+// empty) so the caller can decide whether anything actually changed.
+function applyTabMetadataToStreams(tabId, pageTitle, pageUrl, cleanTitle) {
+  const streams = tabStreams.get(tabId) || [];
+  for (const s of streams) {
+    s.pageTitle = pageTitle;
+    s.pageUrl = pageUrl;
+    s.cleanTitle = cleanTitle;
+    streamMetadata.set(s.url, {
+      url: s.url,
+      tabId,
+      pageTitle,
+      pageUrl,
+      cleanTitle,
+      timestamp: s.timestamp || Date.now()
+    });
+  }
+  return streams;
+}
+
+function notifyStreamMetadataUpdated(tabId, pageTitle, cleanTitle, streams) {
+  try {
+    chrome.runtime
+      .sendMessage({
+        type: getMsgTypeSafe('STREAM_METADATA_UPDATED'),
+        tabId,
+        tabTitle: pageTitle,
+        cleanTitle,
+        streams
+      })
+      .catch(() => {});
+  } catch {}
+}
+
 const tabStreams = new Map();
 const tabMetadata = new Map();
 const streamMetadata = new Map();
 
 let lastActiveMediaTabId = null;
 
+// The real sanitization rule lives in lib/time.js (imported above via
+// importScripts) so it isn't duplicated here. This only degrades if that
+// load-order contract is somehow broken.
 function getCleanTitleSafe(title) {
   if (!title) return '';
   if (typeof StegoTime !== 'undefined' && StegoTime.cleanTitleForFilename) {
     return StegoTime.cleanTitleForFilename(title);
   }
-  let cleaned = title
-    .replace(/[\\/*?:"<>|]/g, '-')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .trim()
-    .replace(/^-+|-+$/g, '');
-  if (cleaned.length > 80) cleaned = cleaned.slice(0, 80).replace(/-+$/g, '');
-  return cleaned;
+  console.warn('[ServiceWorker] StegoTime unavailable, using raw title as fallback.');
+  return title.trim();
 }
 
 // Helper to extract headers into an object
@@ -130,42 +166,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     const cleanTitle = getCleanTitleSafe(pageTitle);
     tabMetadata.set(tabId, { title: pageTitle, url: pageUrl });
 
-    const streams = tabStreams.get(tabId);
-    let updatedAny = false;
-    if (streams && streams.length > 0) {
-      for (const s of streams) {
-        s.pageTitle = pageTitle;
-        s.pageUrl = pageUrl;
-        s.cleanTitle = cleanTitle;
-        streamMetadata.set(s.url, {
-          url: s.url,
-          tabId,
-          pageTitle,
-          pageUrl,
-          cleanTitle,
-          timestamp: s.timestamp || Date.now()
-        });
-        updatedAny = true;
-      }
-    }
+    const streams = applyTabMetadataToStreams(tabId, pageTitle, pageUrl, cleanTitle);
     await persistState();
 
-    if (updatedAny) {
-      try {
-        const msgType =
-          typeof StegoConstants !== 'undefined'
-            ? StegoConstants.MSG_TYPES.STREAM_METADATA_UPDATED
-            : 'STREAM_METADATA_UPDATED';
-        chrome.runtime
-          .sendMessage({
-            type: msgType,
-            tabId,
-            tabTitle: pageTitle,
-            cleanTitle,
-            streams
-          })
-          .catch(() => {});
-      } catch {}
+    if (streams.length > 0) {
+      notifyStreamMetadataUpdated(tabId, pageTitle, cleanTitle, streams);
     }
   }
 });
@@ -212,7 +217,9 @@ chrome.webRequest.onSendHeaders.addListener(
     const { url, tabId, requestHeaders } = details;
     if (tabId < 0) return;
 
-    const isM3u8 = url.includes('.m3u8') || url.includes('/m3u8') || url.includes('urlset/master');
+    const lowerUrl = url.toLowerCase();
+    const isM3u8 =
+      lowerUrl.includes('.m3u8') || lowerUrl.includes('/m3u8') || url.includes('urlset/master');
     if (!isM3u8) return;
 
     lastActiveMediaTabId = tabId;
@@ -268,13 +275,9 @@ chrome.webRequest.onSendHeaders.addListener(
 
       // Notify open popup if listening
       try {
-        const streamDetectedType =
-          typeof StegoConstants !== 'undefined'
-            ? StegoConstants.MSG_TYPES.STREAM_DETECTED
-            : 'STREAM_DETECTED';
         chrome.runtime
           .sendMessage({
-            type: streamDetectedType,
+            type: getMsgTypeSafe('STREAM_DETECTED'),
             tabId,
             streamUrl: url,
             pageTitle,
@@ -372,39 +375,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       tabMetadata.set(tabId, { title: pageTitle, url: pageUrl });
 
-      const streams = tabStreams.get(tabId);
-      if (streams && streams.length > 0) {
-        for (const s of streams) {
-          s.pageTitle = pageTitle;
-          s.pageUrl = pageUrl;
-          s.cleanTitle = cleanTitle;
-          streamMetadata.set(s.url, {
-            url: s.url,
-            tabId,
-            pageTitle,
-            pageUrl,
-            cleanTitle,
-            timestamp: s.timestamp || Date.now()
-          });
-        }
-      }
+      const streams = applyTabMetadataToStreams(tabId, pageTitle, pageUrl, cleanTitle);
       await persistState();
-
-      try {
-        const msgType =
-          typeof StegoConstants !== 'undefined'
-            ? StegoConstants.MSG_TYPES.STREAM_METADATA_UPDATED
-            : 'STREAM_METADATA_UPDATED';
-        chrome.runtime
-          .sendMessage({
-            type: msgType,
-            tabId,
-            tabTitle: pageTitle,
-            cleanTitle,
-            streams
-          })
-          .catch(() => {});
-      } catch {}
+      notifyStreamMetadataUpdated(tabId, pageTitle, cleanTitle, streams);
     })();
     return false;
   }
