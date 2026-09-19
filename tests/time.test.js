@@ -58,34 +58,42 @@ test('formatTimestampForFilename converts colons to underscores', () => {
 });
 
 test('extractBaseName preserves base and separator without extension', () => {
-  assert.deepEqual(extractBaseName('ABF-361.47_00-54_00'), { base: 'ABF-361', sep: '.' });
-  assert.deepEqual(extractBaseName('ABF-361_47_00-54_00'), { base: 'ABF-361', sep: '_' });
-  assert.deepEqual(extractBaseName('ABF-361_full'), { base: 'ABF-361', sep: '_' });
-  assert.deepEqual(extractBaseName('ABF-361'), { base: 'ABF-361', sep: '-' });
-  assert.deepEqual(extractBaseName('ABF-361.47_00-54_00.mp4'), { base: 'ABF-361', sep: '.' });
+  assert.deepEqual(extractBaseName('REC-4021.47_00-54_00'), { base: 'REC-4021', sep: '.' });
+  assert.deepEqual(extractBaseName('REC-4021_47_00-54_00'), { base: 'REC-4021', sep: '_' });
+  assert.deepEqual(extractBaseName('REC-4021_full'), { base: 'REC-4021', sep: '_' });
+  assert.deepEqual(extractBaseName('REC-4021'), { base: 'REC-4021', sep: '-' });
+  assert.deepEqual(extractBaseName('REC-4021.47_00-54_00.mp4'), { base: 'REC-4021', sep: '.' });
+  assert.deepEqual(extractBaseName('REC-4021.47_00-54_00.mp3'), { base: 'REC-4021', sep: '.' });
 });
 
 test('buildClipFilename formats filename dynamically without mp4 extension', () => {
-  assert.equal(buildClipFilename('ABF-361', '47:00', '54:00'), 'ABF-361-47_00-54_00');
-  assert.equal(buildClipFilename('ABF-361', '47:00', '54:00', false, '.'), 'ABF-361.47_00-54_00');
-  assert.equal(buildClipFilename('ABF-361', '47:00', '55:30', false, '_'), 'ABF-361_47_00-55_30');
-  assert.equal(buildClipFilename('ABF-361', '00:00', '02:03:06', true), 'ABF-361-full');
+  assert.equal(buildClipFilename('REC-4021', '47:00', '54:00'), 'REC-4021-47_00-54_00');
+  assert.equal(buildClipFilename('REC-4021', '47:00', '54:00', false, '.'), 'REC-4021.47_00-54_00');
+  assert.equal(buildClipFilename('REC-4021', '47:00', '55:30', false, '_'), 'REC-4021_47_00-55_30');
+  assert.equal(buildClipFilename('REC-4021', '00:00', '02:03:06', true), 'REC-4021-full');
+  assert.equal(buildClipFilename('REC-4021.mp3', '47:00', '54:00'), 'REC-4021-47_00-54_00');
 });
 
 test('cleanTitleForFilename sanitizes document.title into dash-separated filename title', () => {
-  assert.equal(cleanTitleForFilename('[无码破解]ABF-361 女学生'), '[无码破解]ABF-361-女学生');
-  assert.equal(cleanTitleForFilename('FNS-236 720p HD'), 'FNS-236-720p-HD');
-  assert.equal(cleanTitleForFilename('FC2-PPV-123456 Video Title'), 'FC2-PPV-123456-Video-Title');
+  assert.equal(cleanTitleForFilename('[字幕版]REC-4021 発表会'), '[字幕版]REC-4021-発表会');
+  assert.equal(cleanTitleForFilename('CAM-2024 720p HD'), 'CAM-2024-720p-HD');
+  assert.equal(
+    cleanTitleForFilename('REC-SESSION-123456 Video Title'),
+    'REC-SESSION-123456-Video-Title'
+  );
   assert.equal(cleanTitleForFilename('Regular Video Without Code'), 'Regular-Video-Without-Code');
 });
 
 test('extractBaseName upgrades generic names to detected code', () => {
-  assert.deepEqual(extractBaseName('video_clip-47_00-54_00', 'ABF-361'), {
-    base: 'ABF-361',
+  assert.deepEqual(extractBaseName('video_clip-47_00-54_00', 'REC-4021'), {
+    base: 'REC-4021',
     sep: '-'
   });
-  assert.deepEqual(extractBaseName('master-1080p-clip', 'ABF-361'), { base: 'ABF-361', sep: '-' });
-  assert.deepEqual(extractBaseName('MyCustomClip-47_00-54_00', 'ABF-361'), {
+  assert.deepEqual(extractBaseName('master-1080p-clip', 'REC-4021'), {
+    base: 'REC-4021',
+    sep: '-'
+  });
+  assert.deepEqual(extractBaseName('MyCustomClip-47_00-54_00', 'REC-4021'), {
     base: 'MyCustomClip',
     sep: '-'
   });
@@ -93,15 +101,15 @@ test('extractBaseName upgrades generic names to detected code', () => {
 
 test('extractBaseName handles multiple or chained timestamp suffixes cleanly', () => {
   const uglyString =
-    'PKPD-117_1-02_00_55_1_-02_00_55_1_0-02_00_55_1_03_-02_00_55_1_03_0-02_00_55_1_03_00-1_1_03_00-1__1_03_00-1_1_1_03_00-1_18__1_03_00-1_18_0_1_03_00-1_18_00';
-  assert.deepEqual(extractBaseName(uglyString, 'PKPD-117'), { base: 'PKPD-117', sep: '-' });
-  assert.deepEqual(extractBaseName(uglyString, 'video_clip'), { base: 'PKPD-117', sep: '-' });
+    'CLIP-8842_1-02_00_55_1_-02_00_55_1_0-02_00_55_1_03_-02_00_55_1_03_0-02_00_55_1_03_00-1_1_03_00-1__1_03_00-1_1_1_03_00-1_18__1_03_00-1_18_0_1_03_00-1_18_00';
+  assert.deepEqual(extractBaseName(uglyString, 'CLIP-8842'), { base: 'CLIP-8842', sep: '-' });
+  assert.deepEqual(extractBaseName(uglyString, 'video_clip'), { base: 'CLIP-8842', sep: '-' });
 });
 
 test('buildClipFilename normalizes hours into dash-separated title-start-end', () => {
-  assert.equal(buildClipFilename('PKPD-117', '1:03:00', '1:18:00'), 'PKPD-117-01_03_00-01_18_00');
+  assert.equal(buildClipFilename('CLIP-8842', '1:03:00', '1:18:00'), 'CLIP-8842-01_03_00-01_18_00');
   assert.equal(
-    buildClipFilename('PKPD-117-女神のおもてなし', '1:03:00', '1:18:00'),
-    'PKPD-117-女神のおもてなし-01_03_00-01_18_00'
+    buildClipFilename('CLIP-8842-新製品発表会', '1:03:00', '1:18:00'),
+    'CLIP-8842-新製品発表会-01_03_00-01_18_00'
   );
 });

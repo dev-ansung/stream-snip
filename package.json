@@ -30,15 +30,19 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "pnpm lint && pnpm format:check && pnpm test"
+    "typecheck": "tsc -p jsconfig.json",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "mux.js": "^6.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/chrome": "^0.3.0",
     "eslint": "^10.10.0",
     "globals": "^17.12.0",
-    "prettier": "^3.9.7"
+    "prettier": "^3.9.7",
+    "typescript": "^7.0.2"
   }
 }

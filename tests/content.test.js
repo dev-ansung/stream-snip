@@ -1,5 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+// StegoTime is required by content.js in browser / node (loaded before
+// content.js per manifest.json's content_scripts order in the real page).
+globalThis.StegoTime = require('../lib/time.js');
+
 const { findAllVideos, findPrimaryVideo, handleVideoSeek } = require('../content/content.js');
 
 test('findAllVideos traverses DOM and Shadow DOM roots', () => {

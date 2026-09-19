@@ -288,7 +288,9 @@ chrome.webRequest.onSendHeaders.addListener(
     }
   },
   { urls: ['<all_urls>'] },
-  ['requestHeaders', chrome.webRequest.OnBeforeSendHeadersOptions.EXTRA_HEADERS].filter(Boolean)
+  /** @type {any} */ (
+    ['requestHeaders', chrome.webRequest.OnBeforeSendHeadersOptions.EXTRA_HEADERS].filter(Boolean)
+  )
 );
 
 // Message listener for popup communication

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Pre-commit hook: verify types, lint, formatting, and unit tests
+pnpm check

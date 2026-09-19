@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "useUnknownInCatchVariables": false,
+    "skipLibCheck": true,
+    "maxNodeModuleJsDepth": 0,
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": ["chrome", "node"]
+  },
+  "include": [
+    "lib/**/*.js",
+    "popup/**/*.js",
+    "background/**/*.js",
+    "content/**/*.js",
+    "types/**/*.d.ts"
+  ],
+  "exclude": ["node_modules", "dist", "lib/hls.min.js", "lib/mux.min.js", "lib/lame.min.js"]
+}

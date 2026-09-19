@@ -70,7 +70,7 @@ stego-clip-extension/
 
 ## Usage
 
-1. Open any webpage playing an HLS video stream (e.g., `fc2stream.tv`, `supjav.com`).
+1. Open any webpage playing an HLS (`.m3u8`) video stream.
 2. Click the **StegoClip** extension icon in your Chrome toolbar (or open the Side Panel).
 3. The detected video stream will load into the preview player automatically.
 4. Scrub the preview or the host webpage player to locate your desired start and end points.

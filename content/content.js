@@ -11,6 +11,7 @@
   /**
    * Recursively finds all HTML5 video elements in a root or document,
    * including those nested within Shadow DOM roots.
+   * @param {any} [root]
    */
   function findAllVideos(root = document) {
     const videos = [];
@@ -195,18 +196,16 @@
   let titleObserver = null;
   let lastReportedTitle = '';
 
+  // The real sanitization rule lives in lib/time.js (loaded before this
+  // script per manifest.json's content_scripts order) so it isn't
+  // duplicated here. This only degrades if that load-order contract is
+  // somehow broken.
   function getCleanTitle(raw) {
     if (typeof StegoTime !== 'undefined' && StegoTime.cleanTitleForFilename) {
       return StegoTime.cleanTitleForFilename(raw);
     }
-    let cleaned = (raw || '')
-      .replace(/[\\/*?:"<>|]/g, '-')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .trim()
-      .replace(/^-+|-+$/g, '');
-    if (cleaned.length > 80) cleaned = cleaned.slice(0, 80).replace(/-+$/g, '');
-    return cleaned;
+    console.warn('[StegoClip:Content] StegoTime unavailable, using raw title as fallback.');
+    return (raw || '').trim();
   }
 
   function reportTitleChange() {
@@ -219,9 +218,8 @@
     if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
       try {
         const msgType =
-          typeof StegoConstants !== 'undefined'
-            ? StegoConstants.MSG_TYPES.PAGE_TITLE_CHANGED
-            : 'PAGE_TITLE_CHANGED';
+          (typeof StegoConstants !== 'undefined' && StegoConstants.MSG_TYPES?.PAGE_TITLE_CHANGED) ||
+          'PAGE_TITLE_CHANGED';
         chrome.runtime
           .sendMessage({
             type: msgType,

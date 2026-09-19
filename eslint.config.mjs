@@ -4,7 +4,14 @@ import globals from 'globals';
 export default [
   // Ignore vendor bundles, test coverage, and dependencies
   {
-    ignores: ['**/node_modules/**', 'lib/hls.min.js', 'lib/mux.min.js', 'coverage/**', 'dist/**']
+    ignores: [
+      '**/node_modules/**',
+      'lib/hls.min.js',
+      'lib/mux.min.js',
+      'lib/lame.min.js',
+      'coverage/**',
+      'dist/**'
+    ]
   },
 
   // Base recommended rules for all JS
@@ -60,6 +67,7 @@ export default [
         chrome: 'readonly',
         Hls: 'readonly',
         muxjs: 'readonly',
+        lamejs: 'readonly',
         StegoConstants: 'readonly',
         StegoDecoder: 'readonly',
         StegoTime: 'readonly',
@@ -67,6 +75,8 @@ export default [
         StegoDownloader: 'readonly',
         StegoFragmentLoader: 'readonly',
         StegoTransmuxer: 'readonly',
+        StegoMp3Encoder: 'readonly',
+        StegoBytes: 'readonly',
         UiFeedback: 'readonly',
         PlayerController: 'readonly',
         StateManager: 'readonly'
@@ -100,12 +110,15 @@ export default [
         chrome: 'readonly',
         Hls: 'readonly',
         muxjs: 'readonly',
+        lamejs: 'readonly',
         StegoDecoder: 'readonly',
         StegoTime: 'readonly',
         StegoParser: 'readonly',
         StegoDownloader: 'readonly',
         StegoFragmentLoader: 'readonly',
         StegoTransmuxer: 'readonly',
+        StegoMp3Encoder: 'readonly',
+        StegoBytes: 'readonly',
         StegoConstants: 'readonly'
       }
     }
