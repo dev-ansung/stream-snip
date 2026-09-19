@@ -210,14 +210,6 @@ pnpm run build
 
 ---
 
-## Sister Project
-
-Looking for a Python CLI tool for terminal-based and batch downloads with referer spoofing and segment concurrency? Check out:
-
-- [stego-hls](https://github.com/dev-ansung/stego-hls) - Open source CLI to download and decrypt stego HLS streams with segmented downloading.
-
----
-
 ## Contributing
 
 Contributions are welcome! Please check out [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on code style, testing, and pull requests.
