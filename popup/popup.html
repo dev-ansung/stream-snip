@@ -130,6 +130,7 @@
               <select id="formatSelect">
                 <option value="mp4" selected>MP4</option>
                 <option value="ts">TS</option>
+                <option value="mp3">MP3 (Audio Only)</option>
               </select>
             </div>
           </div>
@@ -218,12 +219,15 @@
 
     <!-- Libraries & Modules -->
     <script src="../lib/constants.js"></script>
+    <script src="../lib/bytes.js"></script>
     <script src="../lib/mux.min.js"></script>
     <script src="../lib/hls.min.js"></script>
+    <script src="../lib/lame.min.js"></script>
     <script src="../lib/time.js"></script>
     <script src="../lib/stego.js"></script>
     <script src="../lib/stego-loader.js"></script>
     <script src="../lib/transmuxer.js"></script>
+    <script src="../lib/mp3-encoder.js"></script>
     <script src="../lib/parser.js"></script>
     <script src="../lib/downloader.js"></script>
     <script src="ui-feedback.js"></script>

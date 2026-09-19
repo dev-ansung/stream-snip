@@ -77,24 +77,26 @@ seg3.ts
   assert.equal(firstOnly[0].index, 0);
 });
 
-test('PlaylistParser infers sibling variants from index-f3 URL', () => {
+test('PlaylistParser falls back to a single variant when no #EXT-X-STREAM-INF is present', () => {
   const dummyContent = '#EXTM3U\n#EXTINF:10.0,\nseg0.ts\n';
-  const url = 'https://fc2stream.tv/hls/123/index-f3-v1-a1.m3u8?token=xyz';
-  const variants = PlaylistParser.parseVariants(dummyContent, url);
 
-  assert.equal(variants.length, 4);
-  assert.equal(variants[0].height, 1080);
-  assert.ok(variants[0].url.includes('index-f1-'));
-  assert.ok(variants[0].label.includes('1080p'));
+  // Resolution hinted in the URL itself (no variant tags in the playlist)
+  const withRes = PlaylistParser.parseVariants(
+    dummyContent,
+    'https://cdn.example.com/hls/720p/index.m3u8?token=xyz'
+  );
+  assert.equal(withRes.length, 1);
+  assert.equal(withRes[0].height, 720);
+  assert.ok(withRes[0].label.includes('720p'));
 
-  assert.equal(variants[1].height, 720);
-  assert.ok(variants[1].url.includes('index-f2-'));
-
-  assert.equal(variants[2].height, 480);
-  assert.ok(variants[2].url.includes('index-f3-'));
-
-  assert.equal(variants[3].height, 360);
-  assert.ok(variants[3].url.includes('index-f4-'));
+  // No resolution hint anywhere: generic single-stream fallback
+  const noHint = PlaylistParser.parseVariants(
+    dummyContent,
+    'https://cdn.example.com/hls/stream/index.m3u8?token=xyz'
+  );
+  assert.equal(noHint.length, 1);
+  assert.equal(noHint[0].height, 0);
+  assert.equal(noHint[0].label, 'Default (Original Stream)');
 });
 
 test('PlaylistParser parseMediaPlaylist alias functions identically to parseManifest', () => {
@@ -121,4 +123,45 @@ seg0.ts
   );
   assert.equal(timeline.segments.length, 1);
   assert.equal(timeline.segments[0].url, 'https://cdn.example.com/hls/seg0.ts');
+});
+
+test('Timeline getClipPlan computes relative bounded offsets deep in a stream', () => {
+  // Simulate a 1-hour stream with 6-second segments
+  const segments = [];
+  for (let i = 0; i < 600; i++) {
+    const start = i * 6.0;
+    const dur = 6.0;
+    segments.push({
+      index: i,
+      url: `https://cdn.example.com/seg_${i}.ts`,
+      duration: dur,
+      startTime: start,
+      endTime: start + dur,
+      get start() {
+        return this.startTime;
+      },
+      get end() {
+        return this.endTime;
+      }
+    });
+  }
+  const { Timeline } = require('../lib/parser.js');
+  const timeline = new Timeline(segments);
+
+  // Request clip from 35:04.5 (2104.5s) to 37:30.0 (2250.0s)
+  const plan = timeline.getClipPlan(2104.5, 2250.0);
+
+  // First overlapping segment is seg 350 (starts at 350 * 6 = 2100.0)
+  assert.equal(plan.firstSegmentStart, 2100.0);
+  assert.equal(plan.segments[0].index, 350);
+
+  // trimStart must be relative to the first segment (2104.5 - 2100.0 = 4.5s), NOT absolute (2104.5s)
+  assert.equal(plan.trimStart, 4.5);
+  assert.ok(plan.trimStart < plan.segments[0].duration);
+  assert.equal(plan.duration, 145.5);
+  assert.equal(plan.trimEnd, 150.0);
+
+  // Alias getters
+  assert.equal(plan.segments[0].start, plan.segments[0].startTime);
+  assert.equal(plan.segments[0].end, plan.segments[0].endTime);
 });

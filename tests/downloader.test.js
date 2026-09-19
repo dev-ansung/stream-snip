@@ -2,8 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SegmentDownloader } = require('../lib/downloader.js');
 
-// StegoDecoder is required by SegmentDownloader in browser / node
+// StegoDecoder and StegoBytes are required by SegmentDownloader in browser / node
 globalThis.StegoDecoder = require('../lib/stego.js');
+globalThis.StegoBytes = require('../lib/bytes.js');
 
 test('SegmentDownloader instantiates with default concurrency', () => {
   const dl = new SegmentDownloader();

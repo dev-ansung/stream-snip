@@ -418,7 +418,8 @@ async function executeDownload() {
     return;
   }
 
-  const overlapping = currentTimeline.getOverlappingSegments(startSec, endSec);
+  const clipPlan = currentTimeline.getClipPlan(startSec, endSec);
+  const overlapping = clipPlan.segments;
   if (overlapping.length === 0) {
     UiFeedback.warning('No video segments found in the specified range.');
     return;
@@ -451,8 +452,11 @@ async function executeDownload() {
     progressStatus.textContent = getFinalizeStatusLabel(fmt);
     const base = filenameInput.value.trim().replace(/\.(mp4|ts|mp3)$/i, '') || 'video_clip';
     const filename = `${base}.${fmt}`;
-    const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
-    await downloader.saveToFile(mergedBytes, filename, fmt, clipDuration);
+    await downloader.saveToFile(mergedBytes, filename, fmt, clipPlan.duration, {
+      trimStart: clipPlan.trimStart,
+      trimEnd: clipPlan.trimEnd,
+      duration: clipPlan.duration
+    });
     progressStatus.textContent = `✅ Saved ${filename} successfully!`;
     UiFeedback.success(`Saved ${filename} successfully!`);
   } catch (err) {
@@ -889,7 +893,7 @@ async function requestStreams(targetId) {
 
       if (!renderStreamList()) {
         PlayerController.destroy();
-        resolve();
+        resolve(undefined);
         return;
       }
 
@@ -963,7 +967,7 @@ async function requestStreams(targetId) {
       if (shouldAutoDownload) {
         await executeDownload();
       }
-      resolve();
+      resolve(undefined);
     });
   });
 }
@@ -1049,7 +1053,7 @@ async function executeDownloadTaskMode(targetId) {
           if (chrome.runtime.lastError) {
             // Ignored
           }
-          resolve();
+          resolve(undefined);
         }
       );
     });
@@ -1105,16 +1109,16 @@ async function executeDownloadTaskMode(targetId) {
       } catch {}
     }
 
-    const overlapping = timeline.getOverlappingSegments(startSec, endSec);
+    const clipPlan = timeline.getClipPlan(startSec, endSec);
+    const overlapping = clipPlan.segments;
     if (overlapping.length === 0) {
       throw new Error('No video segments found in selected range.');
     }
 
-    const clipDuration = overlapping.reduce((sum, s) => sum + (s.duration || 0), 0);
     if (dlClipRange) {
       dlClipRange.textContent = `${StegoTime.formatDuration(startSec)} - ${StegoTime.formatDuration(
         endSec
-      )} (${StegoTime.formatDuration(clipDuration)})`;
+      )} (${StegoTime.formatDuration(clipPlan.duration)})`;
     }
 
     if (dlTaskSubtitle)
@@ -1147,7 +1151,11 @@ async function executeDownloadTaskMode(targetId) {
     }
     if (dlStatusBadge) dlStatusBadge.textContent = 'Finalizing';
 
-    await downloader.saveToFile(mergedBytes, finalFilename, fmt, clipDuration);
+    await downloader.saveToFile(mergedBytes, finalFilename, fmt, clipPlan.duration, {
+      trimStart: clipPlan.trimStart,
+      trimEnd: clipPlan.trimEnd,
+      duration: clipPlan.duration
+    });
 
     document.title = `✅ Finished ${finalFilename}`;
     if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Download completed successfully!';
