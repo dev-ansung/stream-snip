@@ -138,6 +138,95 @@ test('SegmentDownloader retries transient failures before succeeding', async () 
   }
 });
 
+test('downloadDirectFile streams a direct media file and reports progress', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    const bodyBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    const half = bodyBytes.slice(0, 4);
+    const rest = bodyBytes.slice(4);
+
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: {
+        get: (name) =>
+          name === 'content-type' ? 'video/mp4' : name === 'content-length' ? '8' : null
+      },
+      body: {
+        getReader: () => {
+          let call = 0;
+          return {
+            read: async () => {
+              call++;
+              if (call === 1) return { done: false, value: half };
+              if (call === 2) return { done: false, value: rest };
+              return { done: true, value: undefined };
+            }
+          };
+        }
+      }
+    });
+
+    const dl = new SegmentDownloader();
+    const progressUpdates = [];
+    const { bytes, contentType } = await dl.downloadDirectFile(
+      'https://cdn.example.com/video.mp4',
+      { Referer: 'https://example.com' },
+      (p) => progressUpdates.push(p)
+    );
+
+    assert.equal(contentType, 'video/mp4');
+    assert.deepEqual(Array.from(bytes), Array.from(bodyBytes));
+    assert.ok(progressUpdates.length >= 2);
+    assert.equal(progressUpdates[progressUpdates.length - 1].percent, 100);
+    assert.equal(progressUpdates[progressUpdates.length - 1].total, 8);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('downloadDirectFile throws with status on a failed response', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => ({ ok: false, status: 403, statusText: 'Forbidden' });
+    const dl = new SegmentDownloader();
+    await assert.rejects(async () => {
+      await dl.downloadDirectFile('https://cdn.example.com/video.mp4');
+    }, /403/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('downloadDirectFile respects an aborted signal mid-stream', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    const controller = new AbortController();
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: { get: () => null },
+      body: {
+        getReader: () => ({
+          read: async () => {
+            controller.abort();
+            return { done: false, value: new Uint8Array([1]) };
+          }
+        })
+      }
+    });
+
+    const dl = new SegmentDownloader();
+    await assert.rejects(async () => {
+      await dl.downloadDirectFile('https://cdn.example.com/video.mp4', {}, null, controller.signal);
+    }, /aborted/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('SegmentDownloader fails cleanly and does not produce corrupt output if a segment fails', async () => {
   const originalFetch = globalThis.fetch;
   try {

@@ -12,6 +12,9 @@ let activeAbortController = null;
 let currentTabId = null;
 let currentDefaultBaseName = '';
 let userCustomBaseName = null;
+// True when selectedStream is a direct (non-HLS) media file — no segments,
+// so no time-range clipping; download is always the whole file.
+let isDirectStreamActive = false;
 
 // DOM Elements
 const videoEl = document.getElementById('previewPlayer');
@@ -19,6 +22,9 @@ const streamSelect = document.getElementById('streamSelect');
 const streamCountBadge = document.getElementById('streamCount');
 const videoInfoEl = document.getElementById('videoInfo');
 const activeQualityBadge = document.getElementById('activeQualityBadge');
+const btnSyncTimeline = document.getElementById('btnSyncTimeline');
+const manualStreamUrlInput = document.getElementById('manualStreamUrl');
+const btnAddManualStream = document.getElementById('btnAddManualStream');
 
 const mediaResolutionEl = document.getElementById('mediaResolution');
 const mediaBitrateEl = document.getElementById('mediaBitrate');
@@ -36,6 +42,8 @@ const btnSetStart = document.getElementById('btnSetStart');
 const btnSetEnd = document.getElementById('btnSetEnd');
 const fullVideoToggle = document.getElementById('fullVideoToggle');
 const clipDurationText = document.getElementById('clipDurationText');
+const btnQuickCut = document.getElementById('btnQuickCut');
+const quickCutMinutesInput = document.getElementById('quickCutMinutes');
 
 const filenameInput = document.getElementById('filenameInput');
 const formatSelect = document.getElementById('formatSelect');
@@ -46,16 +54,63 @@ const downloadProgress = document.getElementById('downloadProgress');
 const progressStatus = document.getElementById('progressStatus');
 const btnRefreshStreams = document.getElementById('btnRefreshStreams');
 
-// Check display and execution mode
+// Tab Navigation Elements
+const tabBtns = document.querySelectorAll('.nav-tab');
+const tabPanels = document.querySelectorAll('.tab-panel');
+const btnBackToVideos = document.getElementById('btnBackToVideos');
+const currentLoadedStreamTitle = document.getElementById('currentLoadedStreamTitle');
+
+// Videos Tab Elements
+const streamSearchInput = /** @type {HTMLInputElement | null} */ (
+  document.getElementById('streamSearchInput')
+);
+const btnClearStreams = document.getElementById('btnClearStreams');
+const filterChips = document.querySelectorAll('.filter-chip');
+const videoCardList = document.getElementById('videoCardList');
+const emptyVideosState = document.getElementById('emptyVideosState');
+
+// Downloads Tab Elements
+const activeDlBadge = document.getElementById('activeDlBadge');
+const activeTasksContainer = document.getElementById('activeTasksContainer');
+const noActiveDlMessage = document.getElementById('noActiveDlMessage');
+const downloadHistoryList = document.getElementById('downloadHistoryList');
+const noHistoryMessage = document.getElementById('noHistoryMessage');
+const btnClearHistory = document.getElementById('btnClearHistory');
+
+// Settings Tab Elements
+const settingMinSize = /** @type {HTMLInputElement | null} */ (
+  document.getElementById('settingMinSize')
+);
+const settingStegoStrip = /** @type {HTMLInputElement | null} */ (
+  document.getElementById('settingStegoStrip')
+);
+const settingDefaultFormat = /** @type {HTMLSelectElement | null} */ (
+  document.getElementById('settingDefaultFormat')
+);
+const settingMp3Bitrate = /** @type {HTMLSelectElement | null} */ (
+  document.getElementById('settingMp3Bitrate')
+);
+const settingConcurrency = /** @type {HTMLSelectElement | null} */ (
+  document.getElementById('settingConcurrency')
+);
+
+let _currentTabName = 'videos';
+let currentMediaFilter = 'all';
+let currentSearchQuery = '';
+/** @type {Map<string, any>} */
+const activeDownloadTasks = new Map();
+
+// Check display and execution params
 const urlParams = new URLSearchParams(window.location.search);
-const isDownloadMode = urlParams.get('mode') === 'download';
 const tabIdFromUrl = urlParams.get('tabId') ? parseInt(urlParams.get('tabId'), 10) : null;
 const shouldAutoDownload =
   urlParams.get('download') === '1' || urlParams.get('autoDownload') === 'true';
 
-if (isDownloadMode) {
-  document.body.classList.add('download-mode');
-  if (btnRefreshStreams) btnRefreshStreams.style.display = 'none';
+// Connect side panel port to arm passive capture
+if (typeof chrome !== 'undefined' && chrome.runtime?.connect) {
+  try {
+    chrome.runtime.connect({ name: 'sidepanel' });
+  } catch {}
 }
 
 function getHeightLabel(height) {
@@ -82,7 +137,11 @@ function getMsgType(key) {
 }
 
 function getConcurrency() {
-  return (typeof StegoConstants !== 'undefined' && StegoConstants.CONFIG?.DEFAULT_CONCURRENCY) || 6;
+  if (settingConcurrency?.value) {
+    const parsed = parseInt(settingConcurrency.value, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return (typeof StegoConstants !== 'undefined' && StegoConstants.CONFIG?.DEFAULT_CONCURRENCY) || 5;
 }
 
 function formatCodecName(c) {
@@ -211,6 +270,35 @@ async function savePopupStateImmediate() {
   await StateManager.saveStateImmediate(currentTabId, getPopupStatePayload());
 }
 
+// Quick Cut window size is a user preference, not tab state, so it lives
+// under its own global storage key rather than in StateManager.
+async function loadQuickCutMinutes() {
+  const key = getStorageKey('QUICK_CUT_MINUTES', 'stego_quick_cut_minutes');
+  const fallback = getConfigDefault('DEFAULT_QUICK_CUT_MINUTES', 10);
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) return fallback;
+  try {
+    const res = await chrome.storage.local.get([key]);
+    const stored = Number(res[key]);
+    return Number.isFinite(stored) && stored > 0 ? stored : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveQuickCutMinutes(minutes) {
+  const key = getStorageKey('QUICK_CUT_MINUTES', 'stego_quick_cut_minutes');
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+  chrome.storage.local.set({ [key]: minutes }).catch(() => {});
+}
+
+function getStorageKey(name, fallback) {
+  return (typeof StegoConstants !== 'undefined' && StegoConstants.STORAGE_KEYS?.[name]) || fallback;
+}
+
+function getConfigDefault(name, fallback) {
+  return (typeof StegoConstants !== 'undefined' && StegoConstants.CONFIG?.[name]) ?? fallback;
+}
+
 function updateClipDuration() {
   try {
     const startSec = StegoTime.parseTimestamp(startTimeInput.value);
@@ -330,7 +418,7 @@ async function loadVariant(variant) {
 
   try {
     const subResp = await fetch(variant.url);
-    const subText = await subResp.text();
+    const subText = await readManifestText(subResp);
     currentTimeline = StegoParser.PlaylistParser.parseManifest(subText, variant.url);
     const totalSec = currentTimeline.totalDuration;
 
@@ -339,7 +427,6 @@ async function loadVariant(variant) {
     PlayerController.mediaInfo.avgSegmentDuration =
       currentTimeline.segments.length > 0 ? totalSec / currentTimeline.segments.length : 0;
     renderMediaDetails();
-    sendSyncStateToPage(true);
 
     if (!startTimeInput.value || startTimeInput.value === '00:00') {
       startTimeInput.value = '00:00';
@@ -347,15 +434,180 @@ async function loadVariant(variant) {
     endTimeInput.value = StegoTime.formatDuration(totalSec);
     updateClipDuration();
     updateDefaultFilename();
+    // Only now is currentTimeline actually populated — Quick Cut/Set
+    // Start/Set End would fail before this point, so they stay disabled
+    // (see lockRangeControlsForLoading in loadStream) until here.
+    resetRangeControlsForHls();
   } catch (err) {
+    // Let loadStream's catch decide whether to fall back to direct-media
+    // handling — swallowing it here would hide that signal.
+    if (err instanceof NotHlsError) throw err;
+    resetRangeControlsForHls();
     videoInfoEl.textContent = `Manifest error: ${err.message}`;
     UiFeedback.error(`Failed loading variant playlist: ${err.message}`);
   }
 }
 
+// Reads a fetch Response as text, but bails out (canceling the rest of the
+// download) as soon as enough bytes have arrived to tell it isn't an HLS
+// playlist. Without this, pasting a direct video/audio link (instead of its
+// .m3u8 manifest) silently tries to read the entire file — potentially
+// hundreds of MB — as text before failing, which looks like the extension
+// hung ("nothing happens").
+const M3U8_SNIFF_BYTES = 512;
+
+// Thrown by readManifestText when the response clearly isn't an HLS
+// playlist. Callers use this specifically (rather than a generic Error) to
+// tell "this is broken" apart from "this is actually a direct media file,
+// fall back to loadDirectStream" — see loadStream/loadVariant below.
+class NotHlsError extends Error {}
+
+async function readManifestText(response) {
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    // Environment without a streaming body (shouldn't happen in Chrome) —
+    // fall back to reading it all, then validate.
+    const text = await response.text();
+    if (!StegoParser.PlaylistParser.looksLikeM3u8(text)) {
+      throw new NotHlsError(
+        "Doesn't look like an HLS playlist (missing #EXTM3U) — likely a direct video/audio file, not an .m3u8 manifest URL."
+      );
+    }
+    return text;
+  }
+
+  const decoder = new TextDecoder();
+  let text = '';
+  let checked = false;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (value) text += decoder.decode(value, { stream: true });
+
+    if (!checked && (text.length >= M3U8_SNIFF_BYTES || done)) {
+      checked = true;
+      if (!StegoParser.PlaylistParser.looksLikeM3u8(text)) {
+        try {
+          await reader.cancel();
+        } catch {}
+        throw new NotHlsError(
+          "Doesn't look like an HLS playlist (missing #EXTM3U) — likely a direct video/audio file, not an .m3u8 manifest URL."
+        );
+      }
+    }
+
+    if (done) break;
+  }
+
+  text += decoder.decode();
+  return text;
+}
+
+// Disables the range/quick-cut/format controls while a stream's manifest is
+// being fetched — there's no currentTimeline yet, so Quick Cut/Set
+// Start/Set End would just fail. Previously these stayed clickable the
+// whole time and silently no-op'd (via an easily-missed toast) if clicked
+// before the manifest resolved; this makes "not ready yet" visible instead.
+function lockRangeControlsForLoading() {
+  fullVideoToggle.disabled = true;
+  startTimeInput.disabled = true;
+  endTimeInput.disabled = true;
+  btnSetStart.disabled = true;
+  btnSetEnd.disabled = true;
+  if (btnQuickCut) btnQuickCut.disabled = true;
+  if (formatSelect) formatSelect.disabled = true;
+}
+
+// Enables the range controls once a stream's timeline is actually ready
+// (currentTimeline populated) — called after a successful HLS load, or to
+// recover from an error, so controls never stay stuck disabled.
+function resetRangeControlsForHls() {
+  isDirectStreamActive = false;
+  fullVideoToggle.disabled = false;
+  if (!fullVideoToggle.checked) {
+    startTimeInput.disabled = false;
+    endTimeInput.disabled = false;
+    btnSetStart.disabled = false;
+    btnSetEnd.disabled = false;
+  }
+  if (btnQuickCut) btnQuickCut.disabled = false;
+  if (formatSelect) formatSelect.disabled = false;
+}
+
+// Direct (non-HLS) media files have no segments to select a time range
+// from, so there's no clipping — just preview + full-file download. Reached
+// either because the sniffer already classified the stream as "direct" at
+// discovery time, or because loadStream/loadVariant tried the HLS path and
+// got a NotHlsError back.
+async function loadDirectStream(stream) {
+  selectedStream = stream;
+  isDirectStreamActive = true;
+  selectedVariant = null;
+  currentVariants = [];
+  currentTimeline = null;
+  qualitySelect.innerHTML = '';
+  qualitySection.style.display = 'none';
+  videoInfoEl.textContent = 'Loading direct media file...';
+
+  if (currentLoadedStreamTitle) {
+    currentLoadedStreamTitle.textContent =
+      stream.cleanTitle || stream.pageTitle || formatStreamTitle(stream, 0);
+  }
+
+  fullVideoToggle.checked = true;
+  fullVideoToggle.disabled = true;
+  startTimeInput.disabled = true;
+  endTimeInput.disabled = true;
+  btnSetStart.disabled = true;
+  btnSetEnd.disabled = true;
+  if (btnQuickCut) btnQuickCut.disabled = true;
+  if (formatSelect) formatSelect.disabled = true;
+  btnDownload.textContent = '⬇️ Download File';
+
+  const msgType = getMsgType('APPLY_DNR_RULES');
+  chrome.runtime.sendMessage({ type: msgType, headers: stream.headers });
+
+  PlayerController.loadDirectMedia(stream.url);
+
+  // Duration/dimensions arrive once the browser loads video metadata —
+  // don't hang forever if that never fires (e.g. a broken/expired URL).
+  await new Promise((resolve) => {
+    const done = () => {
+      videoEl.removeEventListener('loadedmetadata', done);
+      videoEl.removeEventListener('error', done);
+      resolve(undefined);
+    };
+    videoEl.addEventListener('loadedmetadata', done, { once: true });
+    videoEl.addEventListener('error', done, { once: true });
+    setTimeout(done, 8000);
+  });
+
+  const totalSec = PlayerController.getDuration();
+  startTimeInput.value = '00:00';
+  endTimeInput.value = StegoTime.formatDuration(totalSec);
+  updateClipDuration();
+  updateDefaultFilename();
+  videoInfoEl.textContent = totalSec
+    ? 'Direct media file — full download only (no time-range clipping).'
+    : 'Direct media file (duration unavailable) — full download only.';
+}
+
 async function loadStream(stream) {
+  if (stream.kind === 'direct') {
+    await loadDirectStream(stream);
+    return;
+  }
+
+  lockRangeControlsForLoading();
+  isDirectStreamActive = false;
+  btnDownload.textContent = `⬇️ Download ${(formatSelect?.value || 'mp4').toUpperCase()} Clip`;
   selectedStream = stream;
   videoInfoEl.textContent = 'Discovering media qualities...';
+
+  if (currentLoadedStreamTitle) {
+    currentLoadedStreamTitle.textContent =
+      stream.cleanTitle || stream.pageTitle || formatStreamTitle(stream, 0);
+  }
 
   const msgType = getMsgType('APPLY_DNR_RULES');
   chrome.runtime.sendMessage({
@@ -371,7 +623,7 @@ async function loadStream(stream) {
     }
 
     const masterResp = await fetch(manifestUrl);
-    const masterText = await masterResp.text();
+    const masterText = await readManifestText(masterResp);
     currentVariants = StegoParser.PlaylistParser.parseVariants(masterText, manifestUrl);
 
     qualitySelect.innerHTML = '';
@@ -389,12 +641,126 @@ async function loadStream(stream) {
 
     await loadVariant(currentVariants[0]);
   } catch (err) {
+    if (err instanceof NotHlsError) {
+      await loadDirectStream(stream);
+      return;
+    }
+    // Don't leave controls stuck disabled on failure — there's nothing to
+    // clip yet, but the user should be able to retry rather than see a
+    // permanently greyed-out panel.
+    resetRangeControlsForHls();
     videoInfoEl.textContent = `Failed fetching stream: ${err.message}`;
     UiFeedback.error(`Failed to load stream: ${err.message}`);
   }
 }
 
+// Best-effort filename extension for a direct file: the URL's own
+// extension when it has one recognized StreamSniffer would accept, else a
+// guess from Content-Type, else a generic fallback.
+function guessDirectFileExtension(url, contentType) {
+  const urlExt = typeof StreamSniffer !== 'undefined' ? StreamSniffer.getUrlExtension(url) : '';
+  if (urlExt) return urlExt;
+  if (contentType) {
+    const sub = contentType.split(';')[0].split('/')[1];
+    if (sub) return sub.replace('x-', '');
+  }
+  return 'mp4';
+}
+
+// Direct (non-HLS) files have no segments — the whole response body is the
+// file. No transmuxing, no time-range clipping: fetch once, save as-is.
+async function executeDirectDownload() {
+  if (!selectedStream) {
+    UiFeedback.error('Please select a valid stream first.');
+    return;
+  }
+
+  btnDownload.disabled = true;
+  btnCancel.style.display = 'block';
+  progressContainer.style.display = 'block';
+  downloadProgress.value = 0;
+  progressStatus.textContent = 'Downloading file (0%)...';
+
+  activeAbortController = new AbortController();
+  const downloader = new StegoDownloader.SegmentDownloader();
+
+  const taskId = `task_${Date.now()}`;
+  const base = filenameInput.value.trim().replace(/\.\w+$/i, '') || 'video_clip';
+  const guessedExt = guessDirectFileExtension(selectedStream.url);
+  const taskFilename = `${base}.${guessedExt}`;
+
+  activeDownloadTasks.set(taskId, {
+    id: taskId,
+    filename: taskFilename,
+    percent: 0,
+    speed: '0.0 MB/s',
+    abortController: activeAbortController
+  });
+  updateDownloadBadge();
+  renderActiveTasks();
+
+  try {
+    const { bytes, contentType } = await downloader.downloadDirectFile(
+      selectedStream.url,
+      selectedStream.headers,
+      (progress) => {
+        const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
+        const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
+        if (progress.percent != null) {
+          downloadProgress.value = progress.percent;
+          progressStatus.textContent = `Downloading (${progress.percent}%) • ${mb} MB (${speedMb} MB/s)`;
+        } else {
+          progressStatus.textContent = `Downloading... ${mb} MB (${speedMb} MB/s)`;
+        }
+
+        const task = activeDownloadTasks.get(taskId);
+        if (task) {
+          if (progress.percent != null) task.percent = progress.percent;
+          task.speed = `${speedMb} MB/s`;
+          renderActiveTasks();
+        }
+      },
+      activeAbortController.signal
+    );
+
+    const ext = guessDirectFileExtension(selectedStream.url, contentType);
+    const filename = `${base}.${ext}`;
+    await downloader.saveDirectFile(bytes, filename, contentType || 'application/octet-stream');
+    progressStatus.textContent = `✅ Saved ${filename} successfully!`;
+    UiFeedback.success(`Saved ${filename} successfully!`);
+
+    addDownloadHistory({
+      id: taskId,
+      url: selectedStream.url,
+      filename,
+      format: ext,
+      size: bytes.byteLength,
+      completedAt: Date.now()
+    });
+  } catch (err) {
+    if (activeAbortController?.signal.aborted) {
+      progressStatus.textContent = 'Download cancelled.';
+      UiFeedback.info('Download cancelled.');
+    } else {
+      progressStatus.textContent = `❌ Error: ${err.message}`;
+      UiFeedback.error(`Download error: ${err.message}`);
+    }
+  } finally {
+    btnDownload.disabled = false;
+    btnCancel.style.display = 'none';
+    activeAbortController = null;
+    activeDownloadTasks.delete(taskId);
+    updateDownloadBadge();
+    renderActiveTasks();
+  }
+}
+
 async function executeDownload() {
+  if (isDirectStreamActive) {
+    await executeDirectDownload();
+    return;
+  }
+
   if (!selectedVariant || !currentTimeline) {
     UiFeedback.error('Please select a valid stream and quality first.');
     return;
@@ -435,6 +801,21 @@ async function executeDownload() {
   const concurrency = getConcurrency();
   const downloader = new StegoDownloader.SegmentDownloader({ concurrency });
   const fmt = formatSelect ? formatSelect.value : 'mp4';
+  const base = filenameInput.value.trim().replace(/\.(mp4|ts|mp3)$/i, '') || 'video_clip';
+  const filename = `${base}.${fmt}`;
+
+  const taskId = `task_${Date.now()}`;
+  activeDownloadTasks.set(taskId, {
+    id: taskId,
+    filename,
+    percent: 0,
+    speed: '0.0 MB/s',
+    completedSegments: 0,
+    totalSegments: overlapping.length,
+    abortController: activeAbortController
+  });
+  updateDownloadBadge();
+  renderActiveTasks();
 
   try {
     const mergedBytes = await downloader.downloadSegments(
@@ -445,13 +826,20 @@ async function executeDownload() {
         const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
         const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
         progressStatus.textContent = `Downloaded ${progress.completed}/${progress.total} segments (${progress.percent}%) • ${mb} MB (${speedMb} MB/s)`;
+
+        const task = activeDownloadTasks.get(taskId);
+        if (task) {
+          task.percent = progress.percent;
+          task.speed = `${speedMb} MB/s`;
+          task.completedSegments = progress.completed;
+          task.totalSegments = progress.total;
+          renderActiveTasks();
+        }
       },
       activeAbortController.signal
     );
 
     progressStatus.textContent = getFinalizeStatusLabel(fmt);
-    const base = filenameInput.value.trim().replace(/\.(mp4|ts|mp3)$/i, '') || 'video_clip';
-    const filename = `${base}.${fmt}`;
     await downloader.saveToFile(mergedBytes, filename, fmt, clipPlan.duration, {
       trimStart: clipPlan.trimStart,
       trimEnd: clipPlan.trimEnd,
@@ -459,6 +847,15 @@ async function executeDownload() {
     });
     progressStatus.textContent = `✅ Saved ${filename} successfully!`;
     UiFeedback.success(`Saved ${filename} successfully!`);
+
+    addDownloadHistory({
+      id: taskId,
+      url: selectedStream.url,
+      filename,
+      format: fmt,
+      size: mergedBytes.byteLength,
+      completedAt: Date.now()
+    });
   } catch (err) {
     if (activeAbortController?.signal.aborted) {
       progressStatus.textContent = 'Download cancelled.';
@@ -471,6 +868,9 @@ async function executeDownload() {
     btnDownload.disabled = false;
     btnCancel.style.display = 'none';
     activeAbortController = null;
+    activeDownloadTasks.delete(taskId);
+    updateDownloadBadge();
+    renderActiveTasks();
   }
 }
 
@@ -500,6 +900,7 @@ function formatStreamTitle(stream, idx) {
 // title, or sync state — pure re-render of already-known data.
 function renderStreamList() {
   streamCountBadge.textContent = `${currentStreams.length} stream${currentStreams.length === 1 ? '' : 's'}`;
+  renderVideoCards();
 
   streamSelect.innerHTML = '';
 
@@ -539,8 +940,9 @@ function renderStreamList() {
 // Points the sidebar at tabId exactly like switching browser tabs does:
 // stop sync on whatever tab it was previously pointed at (so the content
 // script drops its stale video reference instead of no-op'ing on restart),
-// reset the detected title/filename, re-fetch streams for tabId (which
-// reloads the player against the current stream), then re-enable sync.
+// reset the detected title/filename, and re-fetch streams for tabId (which
+// reloads the player against the current stream). Sync itself is one-shot
+// and manual now (see btnSyncTimeline below), so it's not re-enabled here.
 async function focusTab(tabId) {
   if (!tabId || activeAbortController) return;
   try {
@@ -570,7 +972,6 @@ async function focusTab(tabId) {
       if (detected) currentDefaultBaseName = detected;
     }
     await requestStreams(tabId);
-    sendSyncStateToPage(true, tabId);
   } catch (err) {
     console.warn('[StegoClip:Popup] Failed to focus tab:', err);
   }
@@ -654,6 +1055,69 @@ btnSetEnd.addEventListener('click', () => {
   savePopupState();
 });
 
+if (quickCutMinutesInput) {
+  loadQuickCutMinutes().then((minutes) => {
+    quickCutMinutesInput.value = minutes;
+  });
+
+  quickCutMinutesInput.addEventListener('change', () => {
+    const min = getConfigDefault('MIN_QUICK_CUT_MINUTES', 1);
+    const max = getConfigDefault('MAX_QUICK_CUT_MINUTES', 180);
+    let minutes = parseInt(quickCutMinutesInput.value, 10);
+    if (!Number.isFinite(minutes)) minutes = getConfigDefault('DEFAULT_QUICK_CUT_MINUTES', 10);
+    minutes = Math.min(max, Math.max(min, minutes));
+    quickCutMinutesInput.value = minutes;
+    saveQuickCutMinutes(minutes);
+  });
+}
+
+if (btnQuickCut) {
+  btnQuickCut.addEventListener('click', () => {
+    if (!currentTimeline) {
+      UiFeedback.error('Please select a valid stream first.');
+      return;
+    }
+
+    const minutes =
+      parseInt(quickCutMinutesInput?.value, 10) ||
+      getConfigDefault('DEFAULT_QUICK_CUT_MINUTES', 10);
+    const total = currentTimeline.totalDuration;
+    const cur = PlayerController.getCurrentTime();
+    const half = (minutes * 60) / 2;
+
+    let start = cur - half;
+    let end = cur + half;
+
+    // Keep the full requested window length by shifting the slack from a
+    // clamped edge onto the opposite side, when there's room to do so.
+    if (start < 0) {
+      end += -start;
+      start = 0;
+    }
+    if (end > total) {
+      start -= end - total;
+      end = total;
+    }
+    start = Math.max(0, start);
+    end = Math.min(total, end);
+
+    if (fullVideoToggle.checked) {
+      fullVideoToggle.checked = false;
+      startTimeInput.disabled = false;
+      endTimeInput.disabled = false;
+      btnSetStart.disabled = false;
+      btnSetEnd.disabled = false;
+    }
+
+    startTimeInput.value = StegoTime.formatDuration(start);
+    endTimeInput.value = StegoTime.formatDuration(end);
+    updateClipDuration();
+    updateFilenameTimestamps();
+    savePopupState();
+    UiFeedback.info(`Quick cut: ${minutes} min around ${StegoTime.formatDuration(cur)}`, 2000);
+  });
+}
+
 fullVideoToggle.addEventListener('change', () => {
   const isFull = fullVideoToggle.checked;
   startTimeInput.disabled = isFull;
@@ -711,16 +1175,8 @@ qualitySelect.addEventListener('change', () => {
 });
 
 btnDownload.addEventListener('click', async () => {
-  if (!isDownloadMode) {
-    await savePopupStateImmediate();
-    const tabParam = currentTabId ? `&tabId=${currentTabId}` : '';
-    chrome.tabs.create({
-      url: chrome.runtime.getURL(`popup/popup.html?mode=download${tabParam}&download=1`),
-      active: true
-    });
-    UiFeedback.info('Download task opened in new tab', 2500);
-    return;
-  }
+  await savePopupStateImmediate();
+  switchTab('downloads');
   await executeDownload();
 });
 
@@ -740,6 +1196,71 @@ streamSelect.addEventListener('change', () => {
     loadStream(stream).then(() => savePopupState());
   }
 });
+
+// Fallback for when auto-detection misses a stream (e.g. it loads before the
+// side panel is armed, or the site fetches it in a way webRequest doesn't
+// see). Registers the URL with the background the same way a sniffed one
+// would be, so it persists and shows up in the dropdown like any other.
+async function addManualStream() {
+  const raw = manualStreamUrlInput?.value?.trim();
+  if (!raw) return;
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+    if (!/^https?:$/.test(parsed.protocol)) throw new Error('not http(s)');
+  } catch {
+    UiFeedback.error('Enter a valid http(s) stream URL.');
+    return;
+  }
+
+  if (!currentTabId) {
+    UiFeedback.error('No active tab to attach this stream to.');
+    return;
+  }
+
+  btnAddManualStream.disabled = true;
+  try {
+    const type = getMsgType('ADD_MANUAL_STREAM');
+    const response = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type, tabId: currentTabId, url: parsed.href }, resolve);
+    });
+
+    if (!response?.success) {
+      UiFeedback.error(response?.error || 'Could not add that stream.');
+      return;
+    }
+
+    currentStreams = response.streams || currentStreams;
+    manualStreamUrlInput.value = '';
+    renderStreamList();
+    streamSelect.value = parsed.href;
+
+    const stream = currentStreams.find((s) => s.url === parsed.href);
+    if (stream) {
+      if (!userCustomBaseName) {
+        updateFilenameForSelectedStream(stream);
+      }
+      await loadStream(stream);
+      savePopupState();
+    }
+    UiFeedback.success('Stream added.');
+  } finally {
+    btnAddManualStream.disabled = false;
+  }
+}
+
+if (btnAddManualStream) {
+  btnAddManualStream.addEventListener('click', addManualStream);
+}
+if (manualStreamUrlInput) {
+  manualStreamUrlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addManualStream();
+    }
+  });
+}
 
 async function sendSyncStateToPage(enabled, tabId = currentTabId) {
   if (!tabId || typeof chrome === 'undefined' || !chrome.tabs?.sendMessage) return;
@@ -764,6 +1285,40 @@ window.addEventListener('beforeunload', () => {
     sendSyncStateToPage(false);
   }
 });
+
+// Manual, one-shot: attaches seek-mirroring on the page's video for this
+// tab and immediately jumps the preview to its current playback position.
+// Replaces the old automatic behavior (which used to fire on every stream
+// load / tab switch) with an explicit user action.
+async function syncTimelineWithPage() {
+  if (!currentTabId) {
+    UiFeedback.error('No active tab to sync with.');
+    return;
+  }
+
+  await sendSyncStateToPage(true, currentTabId);
+
+  const getMediaTimeType = getMsgType('GET_PAGE_MEDIA_TIME');
+  const previewDuration = PlayerController.getDuration();
+  chrome.tabs.sendMessage(
+    currentTabId,
+    { type: getMediaTimeType, expectedDuration: previewDuration },
+    (response) => {
+      if (chrome.runtime.lastError || !response?.success) {
+        UiFeedback.error('Could not find a playing video on that page.');
+        return;
+      }
+      if (typeof response.currentTime === 'number') {
+        PlayerController.seekTo(response.currentTime);
+      }
+      UiFeedback.info('Synced preview to page playback.', 2000);
+    }
+  );
+}
+
+if (btnSyncTimeline) {
+  btnSyncTimeline.addEventListener('click', syncTimelineWithPage);
+}
 
 // Synchronize preview player when seek occurs on the host webpage player, or reload on STREAM_DETECTED / title updates
 chrome.runtime.onMessage.addListener(async (message, sender) => {
@@ -800,21 +1355,10 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
   const isStreamDetectedMsg = message?.type === 'STREAM_DETECTED';
 
   if (isStreamDetectedMsg) {
-    let shouldAdopt =
-      !currentTabId || message.tabId === currentTabId || currentStreams.length === 0;
-    if (!shouldAdopt && typeof chrome !== 'undefined' && chrome.tabs?.query) {
-      try {
-        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (activeTab && activeTab.id === message.tabId) {
-          shouldAdopt = true;
-        }
-      } catch {}
+    if (message.tabId && currentTabId && message.tabId !== currentTabId) {
+      return;
     }
-
-    if (shouldAdopt) {
-      currentTabId = message.tabId;
-      requestStreams(message.tabId);
-    }
+    requestStreams(message.tabId);
     return;
   }
 
@@ -943,27 +1487,6 @@ async function requestStreams(targetId) {
         updateClipDuration();
       }
 
-      if (currentTabId) {
-        await sendSyncStateToPage(true);
-        const getMediaTimeType = getMsgType('GET_PAGE_MEDIA_TIME');
-        try {
-          const previewDuration = PlayerController.getDuration();
-          chrome.tabs.sendMessage(
-            currentTabId,
-            { type: getMediaTimeType, expectedDuration: previewDuration },
-            (response) => {
-              if (
-                !chrome.runtime.lastError &&
-                response?.success &&
-                typeof response.currentTime === 'number'
-              ) {
-                PlayerController.seekTo(response.currentTime);
-              }
-            }
-          );
-        } catch {}
-      }
-
       if (shouldAutoDownload) {
         await executeDownload();
       }
@@ -972,243 +1495,336 @@ async function requestStreams(targetId) {
   });
 }
 
-async function executeDownloadTaskMode(targetId) {
-  const downloadCard = document.getElementById('downloadManagerCard');
-  const dlTaskSubtitle = document.getElementById('dlTaskSubtitle');
-  const dlStatusBadge = document.getElementById('dlStatusBadge');
-  const dlFilename = document.getElementById('dlFilename');
-  const dlQuality = document.getElementById('dlQuality');
-  const dlClipRange = document.getElementById('dlClipRange');
-  const dlProgressPercentage = document.getElementById('dlProgressPercentage');
-  const dlProgressSpeed = document.getElementById('dlProgressSpeed');
-  const dlProgressBar = document.getElementById('dlProgressBar');
-  const dlProgressSegments = document.getElementById('dlProgressSegments');
-  const dlProgressEta = document.getElementById('dlProgressEta');
-  const dlSuccessBanner = document.getElementById('dlSuccessBanner');
-  const dlAutoCloseToggle = document.getElementById('dlAutoCloseToggle');
-  const btnCancelDownloadTab = document.getElementById('btnCancelDownloadTab');
-  const btnCloseDownloadTab = document.getElementById('btnCloseDownloadTab');
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
-  if (downloadCard) downloadCard.style.display = 'flex';
+function switchTab(tabName) {
+  const tabs = ['videos', 'preview', 'downloads', 'settings'];
+  if (!tabs.includes(tabName)) return;
+  _currentTabName = tabName;
 
-  activeAbortController = new AbortController();
+  tabBtns.forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-tab') === tabName);
+  });
 
-  if (btnCancelDownloadTab) {
-    btnCancelDownloadTab.addEventListener('click', () => {
-      if (activeAbortController) {
-        activeAbortController.abort();
-      }
-    });
-  }
-
-  if (btnCloseDownloadTab) {
-    btnCloseDownloadTab.addEventListener('click', () => {
-      window.close();
-    });
-  }
-
-  try {
-    if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Loading stream configuration...';
-
-    // Load state saved by side panel
-    let savedState = targetId ? await StateManager.loadState(targetId) : null;
-    const getStreamsType = getMsgType('GET_STREAMS');
-
-    if (!savedState || !savedState.streamUrl) {
-      const streamsResp = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, resolve);
-      });
-      const fallbackTabId = streamsResp?.tabId;
-      if (fallbackTabId && fallbackTabId !== targetId) {
-        savedState = await StateManager.loadState(fallbackTabId);
-      }
-    }
-
-    if (!savedState || !savedState.streamUrl) {
-      throw new Error('Stream configuration not found in local storage.');
-    }
-
-    const streamsResp = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: getStreamsType, tabId: targetId }, resolve);
-    });
-
-    const stream = (streamsResp?.streams || []).find((s) => s.url === savedState.streamUrl) || {
-      url: savedState.streamUrl,
-      headers: savedState.headers || {}
-    };
-
-    const headers =
-      savedState.headers && Object.keys(savedState.headers).length > 0
-        ? savedState.headers
-        : stream.headers || {};
-
-    const applyDnrType = getMsgType('APPLY_DNR_RULES');
-    await new Promise((resolve) => {
-      chrome.runtime.sendMessage(
-        {
-          type: applyDnrType,
-          headers
-        },
-        () => {
-          if (chrome.runtime.lastError) {
-            // Ignored
-          }
-          resolve(undefined);
-        }
-      );
-    });
-
-    const variantUrl = savedState.variantUrl || savedState.streamUrl;
-    const fmt = savedState.format || 'mp4';
-    const rawBase = (savedState.filename || 'video_clip').replace(/\.(mp4|ts|mp3)$/i, '');
-    const finalFilename = `${rawBase}.${fmt}`;
-
-    document.title = `📥 Downloading ${finalFilename}`;
-    if (dlFilename) dlFilename.textContent = finalFilename;
-
-    if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Parsing stream playlist...';
-
-    let mediaPlaylistUrl = variantUrl;
-    let mediaText = '';
-
-    const resp = await fetch(variantUrl);
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status} fetching playlist: ${resp.statusText}`);
-    }
-    const text = await resp.text();
-
-    if (text.includes('#EXT-X-STREAM-INF')) {
-      const variants = StegoParser.PlaylistParser.parseVariants(text, variantUrl);
-      if (variants.length > 0) {
-        mediaPlaylistUrl = variants[0].url;
-        if (dlQuality) dlQuality.textContent = variants[0].label;
-        const mediaResp = await fetch(mediaPlaylistUrl);
-        if (!mediaResp.ok) {
-          throw new Error(
-            `HTTP ${mediaResp.status} fetching variant playlist: ${mediaResp.statusText}`
-          );
-        }
-        mediaText = await mediaResp.text();
-      } else {
-        mediaText = text;
-      }
-    } else {
-      if (dlQuality) dlQuality.textContent = 'Direct Stream';
-      mediaText = text;
-    }
-
-    const timeline = StegoParser.PlaylistParser.parseManifest(mediaText, mediaPlaylistUrl);
-
-    let startSec = 0;
-    let endSec = timeline.totalDuration;
-
-    if (!savedState.isFull && savedState.startTime && savedState.endTime) {
-      try {
-        startSec = StegoTime.parseTimestamp(savedState.startTime);
-        endSec = StegoTime.parseTimestamp(savedState.endTime);
-      } catch {}
-    }
-
-    const clipPlan = timeline.getClipPlan(startSec, endSec);
-    const overlapping = clipPlan.segments;
-    if (overlapping.length === 0) {
-      throw new Error('No video segments found in selected range.');
-    }
-
-    if (dlClipRange) {
-      dlClipRange.textContent = `${StegoTime.formatDuration(startSec)} - ${StegoTime.formatDuration(
-        endSec
-      )} (${StegoTime.formatDuration(clipPlan.duration)})`;
-    }
-
-    if (dlTaskSubtitle)
-      dlTaskSubtitle.textContent = `Downloading ${overlapping.length} segments...`;
-
-    const concurrency = getConcurrency();
-    const downloader = new StegoDownloader.SegmentDownloader({ concurrency });
-
-    const mergedBytes = await downloader.downloadSegments(
-      overlapping,
-      headers,
-      (progress) => {
-        if (dlProgressBar) dlProgressBar.value = progress.percent;
-        if (dlProgressPercentage) dlProgressPercentage.textContent = `${progress.percent}%`;
-        const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
-        const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
-        if (dlProgressSpeed) dlProgressSpeed.textContent = `${speedMb} MB/s (${mb} MB)`;
-        if (dlProgressSegments) {
-          dlProgressSegments.textContent = `${progress.completed} / ${progress.total} segments`;
-        }
-        if (dlProgressEta && typeof progress.etaSec === 'number') {
-          dlProgressEta.textContent = `ETA: ~${StegoTime.formatDuration(progress.etaSec)}`;
-        }
-      },
-      activeAbortController.signal
+  tabPanels.forEach((panel) => {
+    panel.classList.toggle(
+      'active',
+      panel.id === `panel${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`
     );
+  });
+}
 
-    if (dlTaskSubtitle) {
-      dlTaskSubtitle.textContent = getFinalizeStatusLabel(fmt);
-    }
-    if (dlStatusBadge) dlStatusBadge.textContent = 'Finalizing';
+function renderVideoCards() {
+  if (!videoCardList) return;
+  videoCardList.innerHTML = '';
 
-    await downloader.saveToFile(mergedBytes, finalFilename, fmt, clipPlan.duration, {
-      trimStart: clipPlan.trimStart,
-      trimEnd: clipPlan.trimEnd,
-      duration: clipPlan.duration
-    });
+  const query = currentSearchQuery.trim().toLowerCase();
+  const filtered = currentStreams.filter((stream) => {
+    const isHls = stream.kind === 'hls' || stream.url.toLowerCase().includes('.m3u8');
+    if (currentMediaFilter === 'hls' && !isHls) return false;
+    if (currentMediaFilter === 'direct' && isHls) return false;
 
-    document.title = `✅ Finished ${finalFilename}`;
-    if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Download completed successfully!';
-    if (dlStatusBadge) {
-      dlStatusBadge.textContent = 'Complete';
-      dlStatusBadge.style.backgroundColor = '#dcfce7';
-      dlStatusBadge.style.color = '#15803d';
+    if (query) {
+      const title = (stream.cleanTitle || stream.pageTitle || '').toLowerCase();
+      const url = stream.url.toLowerCase();
+      if (!title.includes(query) && !url.includes(query)) return false;
     }
-    if (dlSuccessBanner) dlSuccessBanner.style.display = 'block';
-    if (btnCancelDownloadTab) btnCancelDownloadTab.style.display = 'none';
-    if (btnCloseDownloadTab) btnCloseDownloadTab.style.display = 'block';
+    return true;
+  });
 
-    if (dlAutoCloseToggle && dlAutoCloseToggle.checked) {
-      setTimeout(() => {
-        window.close();
-      }, 1500);
-    }
-  } catch (err) {
-    if (activeAbortController?.signal.aborted) {
-      document.title = 'Cancelled Download';
-      if (dlTaskSubtitle) dlTaskSubtitle.textContent = 'Download was cancelled.';
-      if (dlStatusBadge) {
-        dlStatusBadge.textContent = 'Cancelled';
-        dlStatusBadge.style.backgroundColor = '#f1f5f9';
-        dlStatusBadge.style.color = '#64748b';
-      }
-    } else {
-      document.title = 'Download Failed';
-      if (dlTaskSubtitle) dlTaskSubtitle.textContent = `Error: ${err.message}`;
-      if (dlStatusBadge) {
-        dlStatusBadge.textContent = 'Failed';
-        dlStatusBadge.style.backgroundColor = '#fecaca';
-        dlStatusBadge.style.color = '#991b1b';
-      }
-    }
-    if (btnCancelDownloadTab) btnCancelDownloadTab.style.display = 'none';
-    if (btnCloseDownloadTab) btnCloseDownloadTab.style.display = 'block';
-  } finally {
-    activeAbortController = null;
+  if (emptyVideosState) {
+    emptyVideosState.style.display = filtered.length === 0 ? 'block' : 'none';
   }
+
+  filtered.forEach((stream, idx) => {
+    const card = document.createElement('div');
+    card.className = 'video-card';
+
+    const isHls = stream.kind === 'hls' || stream.url.toLowerCase().includes('.m3u8');
+    const badgeClass = isHls ? 'video-badge-hls' : 'video-badge-direct';
+    const ext = StreamSniffer?.getUrlExtension ? StreamSniffer.getUrlExtension(stream.url) : '';
+    const badgeText = isHls ? 'HLS' : ext ? ext.toUpperCase() : 'DIRECT';
+    const titleText = stream.cleanTitle || stream.pageTitle || formatStreamTitle(stream, idx);
+    const sizeText =
+      stream.formattedSize ||
+      (stream.size && typeof StegoTime !== 'undefined' ? StegoTime.formatBytes(stream.size) : '');
+
+    card.innerHTML = `
+      <div class="video-card-header">
+        <div class="video-card-title">${escapeHtml(titleText)}</div>
+        <div class="video-card-meta">
+          <span class="${badgeClass}">${badgeText}</span>
+          ${sizeText ? `<span class="badge-subtle">${sizeText}</span>` : ''}
+        </div>
+      </div>
+      <div class="video-card-url" title="${escapeHtml(stream.url)}">${escapeHtml(stream.url)}</div>
+      <div class="video-card-actions">
+        <button type="button" class="btn-card-action primary btn-preview-clip" title="Open player and trim clip">
+          ✂️ Preview & Clip
+        </button>
+        <button type="button" class="btn-card-action btn-card-download" title="Download media">
+          ⬇️ Download
+        </button>
+        <button type="button" class="btn-card-action btn-card-copy" title="Copy stream URL">
+          📋 Copy
+        </button>
+      </div>
+    `;
+
+    const btnPreview = card.querySelector('.btn-preview-clip');
+    if (btnPreview) {
+      btnPreview.addEventListener('click', async () => {
+        await loadStream(stream);
+        if (streamSelect) streamSelect.value = stream.url;
+        switchTab('preview');
+      });
+    }
+
+    const btnCardDl = card.querySelector('.btn-card-download');
+    if (btnCardDl) {
+      btnCardDl.addEventListener('click', async () => {
+        await loadStream(stream);
+        if (fullVideoToggle) fullVideoToggle.checked = true;
+        updateClipDuration();
+        switchTab('downloads');
+        await executeDownload();
+      });
+    }
+
+    const btnCardCopy = card.querySelector('.btn-card-copy');
+    if (btnCardCopy) {
+      btnCardCopy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(stream.url);
+          UiFeedback.success('Stream URL copied to clipboard!');
+        } catch {
+          UiFeedback.error('Failed to copy URL.');
+        }
+      });
+    }
+
+    videoCardList.appendChild(card);
+  });
+}
+
+function renderActiveTasks() {
+  if (!activeTasksContainer) return;
+  activeTasksContainer.innerHTML = '';
+
+  if (activeDownloadTasks.size === 0) {
+    if (noActiveDlMessage) {
+      activeTasksContainer.appendChild(noActiveDlMessage);
+      noActiveDlMessage.style.display = 'block';
+    }
+    return;
+  }
+
+  activeDownloadTasks.forEach((task) => {
+    const card = document.createElement('div');
+    card.className = 'task-item-card';
+    card.innerHTML = `
+      <div class="task-header">
+        <span class="task-filename">${escapeHtml(task.filename)}</span>
+        <button type="button" class="danger-btn btn-cancel-task" style="width: auto; padding: 2px 8px; font-size: 11px; margin: 0;">Cancel</button>
+      </div>
+      <progress class="task-progress-bar" value="${task.percent || 0}" max="100"></progress>
+      <div class="task-meta">
+        <span>${task.percent || 0}% ${task.totalSegments ? `(${task.completedSegments}/${task.totalSegments})` : ''}</span>
+        <span>${task.speed || ''}</span>
+      </div>
+    `;
+
+    const btnCancelTask = card.querySelector('.btn-cancel-task');
+    if (btnCancelTask) {
+      btnCancelTask.addEventListener('click', () => {
+        if (task.abortController) task.abortController.abort();
+      });
+    }
+
+    activeTasksContainer.appendChild(card);
+  });
+}
+
+function updateDownloadBadge() {
+  if (!activeDlBadge) return;
+  const count = activeDownloadTasks.size;
+  if (count > 0) {
+    activeDlBadge.textContent = String(count);
+    activeDlBadge.style.display = 'inline-block';
+  } else {
+    activeDlBadge.style.display = 'none';
+  }
+}
+
+const DOWNLOAD_HISTORY_KEY = 'stegoclip_download_history';
+
+async function loadDownloadHistory() {
+  try {
+    const data = await chrome.storage.local.get([DOWNLOAD_HISTORY_KEY]);
+    const list = Array.isArray(data[DOWNLOAD_HISTORY_KEY]) ? data[DOWNLOAD_HISTORY_KEY] : [];
+    renderDownloadHistory(list);
+  } catch {}
+}
+
+/**
+ * @param {import("../types/domain.js").DownloadHistoryItem} item
+ */
+async function addDownloadHistory(item) {
+  try {
+    const data = await chrome.storage.local.get([DOWNLOAD_HISTORY_KEY]);
+    const list = Array.isArray(data[DOWNLOAD_HISTORY_KEY]) ? data[DOWNLOAD_HISTORY_KEY] : [];
+    list.unshift(item);
+    if (list.length > 30) list.pop();
+    await chrome.storage.local.set({ [DOWNLOAD_HISTORY_KEY]: list });
+    renderDownloadHistory(list);
+  } catch {}
+}
+
+function renderDownloadHistory(list) {
+  if (!downloadHistoryList) return;
+  downloadHistoryList.innerHTML = '';
+
+  if (!list || list.length === 0) {
+    if (noHistoryMessage) {
+      downloadHistoryList.appendChild(noHistoryMessage);
+      noHistoryMessage.style.display = 'block';
+    }
+    return;
+  }
+
+  list.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'history-item-card';
+
+    const timeStr = item.completedAt ? new Date(item.completedAt).toLocaleTimeString() : '';
+    const sizeStr =
+      item.size && typeof StegoTime !== 'undefined' ? StegoTime.formatBytes(item.size) : '';
+
+    row.innerHTML = `
+      <span class="history-item-name" title="${escapeHtml(item.filename)}">💾 ${escapeHtml(item.filename)}</span>
+      <div class="history-item-meta">
+        ${sizeStr ? `<span>${sizeStr}</span>` : ''}
+        <span>${timeStr}</span>
+      </div>
+    `;
+    downloadHistoryList.appendChild(row);
+  });
+}
+
+const SETTINGS_KEY = 'stegoclip_settings';
+
+async function loadSettings() {
+  try {
+    const data = await chrome.storage.local.get([SETTINGS_KEY]);
+    const settings = /** @type {Record<string, any>} */ (data[SETTINGS_KEY] || {});
+    if (settingMinSize && settings.minSize !== undefined) settingMinSize.value = settings.minSize;
+    if (settingStegoStrip && settings.stegoStrip !== undefined)
+      settingStegoStrip.checked = settings.stegoStrip;
+    if (settingDefaultFormat && settings.defaultFormat)
+      settingDefaultFormat.value = settings.defaultFormat;
+    if (settingMp3Bitrate && settings.mp3Bitrate) settingMp3Bitrate.value = settings.mp3Bitrate;
+    if (settingConcurrency && settings.concurrency) settingConcurrency.value = settings.concurrency;
+
+    if (formatSelect && settings.defaultFormat) {
+      formatSelect.value = settings.defaultFormat;
+    }
+  } catch {}
+}
+
+async function saveSettings() {
+  try {
+    const settings = {
+      minSize: settingMinSize ? parseInt(settingMinSize.value, 10) || 50 : 50,
+      stegoStrip: settingStegoStrip ? settingStegoStrip.checked : true,
+      defaultFormat: settingDefaultFormat ? settingDefaultFormat.value : 'mp4',
+      mp3Bitrate: settingMp3Bitrate ? settingMp3Bitrate.value : '192',
+      concurrency: settingConcurrency ? settingConcurrency.value : '5'
+    };
+    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
+  } catch {}
 }
 
 // Bootstrap Popup
 document.addEventListener('DOMContentLoaded', async () => {
-  if (isDownloadMode) {
-    let targetId = tabIdFromUrl;
-    if (!targetId && typeof chrome !== 'undefined' && chrome.tabs?.query) {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      targetId = tab?.id || null;
-    }
-    await executeDownloadTaskMode(targetId);
-    return;
+  tabBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tabName = btn.getAttribute('data-tab');
+      if (tabName) switchTab(tabName);
+    });
+  });
+
+  if (btnBackToVideos) {
+    btnBackToVideos.addEventListener('click', () => switchTab('videos'));
   }
+
+  filterChips.forEach((chip) => {
+    chip.addEventListener('click', () => {
+      filterChips.forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+      currentMediaFilter = chip.getAttribute('data-filter') || 'all';
+      renderVideoCards();
+    });
+  });
+
+  if (streamSearchInput) {
+    streamSearchInput.addEventListener('input', () => {
+      currentSearchQuery = streamSearchInput.value;
+      renderVideoCards();
+    });
+  }
+
+  if (btnClearStreams) {
+    btnClearStreams.addEventListener('click', async () => {
+      try {
+        const clearType = getMsgType('CLEAR_STREAMS');
+        await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: clearType, tabId: currentTabId }, resolve);
+        });
+        currentStreams = [];
+        renderStreamList();
+        renderVideoCards();
+        PlayerController.destroy();
+        UiFeedback.info('Cleared streams for this tab.');
+      } catch {
+        UiFeedback.error('Failed to clear streams.');
+      }
+    });
+  }
+
+  if (btnClearHistory) {
+    btnClearHistory.addEventListener('click', async () => {
+      try {
+        await chrome.storage.local.remove([DOWNLOAD_HISTORY_KEY]);
+        renderDownloadHistory([]);
+        UiFeedback.info('Download history cleared.');
+      } catch {}
+    });
+  }
+
+  [
+    settingMinSize,
+    settingStegoStrip,
+    settingDefaultFormat,
+    settingMp3Bitrate,
+    settingConcurrency
+  ].forEach((el) => {
+    if (el) {
+      el.addEventListener('change', () => {
+        saveSettings();
+        UiFeedback.info('Settings saved.');
+      });
+    }
+  });
+
+  await loadSettings();
+  await loadDownloadHistory();
 
   PlayerController.init(videoEl, {
     onMediaInfoChanged: (info) => {
@@ -1231,23 +1847,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (targetId) {
+    currentTabId = targetId;
     const live = await resolveDocumentTitle(targetId);
     if (live && !StegoTime.isGenericBase(live)) {
       currentDefaultBaseName = live;
       updateFilenameTimestamps();
     }
+    try {
+      chrome.tabs.sendMessage(targetId, { type: 'SCAN_DOM_MEDIA' }).catch(() => {});
+    } catch {}
   }
 
   requestStreams(targetId);
 
-  // If running in side panel, switch stream focus when user switches browser tabs
-  if (!tabIdFromUrl && typeof chrome !== 'undefined' && chrome.tabs?.onActivated) {
-    chrome.tabs.onActivated.addListener((activeInfo) => {
-      focusTab(activeInfo.tabId);
-    });
-  }
-
-  // If streams are still empty, retry once after 1200ms in case video player was still initializing
   setTimeout(() => {
     if (currentStreams.length === 0) {
       requestStreams(targetId);

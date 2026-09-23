@@ -275,9 +275,52 @@
     }
   }
 
+  const reportedMediaUrls = new Set();
+
+  function scanDomMedia() {
+    if (typeof document === 'undefined') return;
+    try {
+      const mediaNodes = document.querySelectorAll('video, audio, source');
+      const urls = [];
+
+      for (const node of mediaNodes) {
+        /** @type {any} */
+        const el = node;
+        const rawSrc = el.currentSrc || el.src;
+        if (!rawSrc || typeof rawSrc !== 'string') continue;
+        if (rawSrc.startsWith('blob:') || rawSrc.startsWith('data:')) continue;
+
+        let absoluteUrl = rawSrc;
+        try {
+          absoluteUrl = new URL(rawSrc, location.href).href;
+        } catch {}
+
+        if (absoluteUrl && !reportedMediaUrls.has(absoluteUrl)) {
+          reportedMediaUrls.add(absoluteUrl);
+          urls.push(absoluteUrl);
+        }
+      }
+
+      if (urls.length > 0 && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime
+          .sendMessage({
+            type: 'DOM_MEDIA_FOUND',
+            urls
+          })
+          .catch(() => {});
+      }
+    } catch {}
+  }
+
   // Listen for control queries and sync toggle messages from extension side panel
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type === 'SCAN_DOM_MEDIA') {
+        scanDomMedia();
+        sendResponse({ success: true, count: reportedMediaUrls.size });
+        return false;
+      }
+
       if (message?.type === 'ENABLE_TAB_SEEK_SYNC') {
         startSync(message?.expectedDuration || 0);
         sendResponse({ success: true, active: true });
@@ -322,6 +365,9 @@
   // Automatically observe title changes in top-level window
   if (typeof window !== 'undefined' && window === window.top) {
     startTitleObserver();
+    setTimeout(scanDomMedia, 500);
+    setTimeout(scanDomMedia, 2000);
+    window.addEventListener('load', () => scanDomMedia(), { once: true });
   }
 
   if (typeof module !== 'undefined' && module.exports) {

@@ -30,6 +30,10 @@ class PlayerControllerClass {
       const metadataHandler = () => {
         if (this.videoEl.duration && !isNaN(this.videoEl.duration)) {
           this.mediaInfo.totalDuration = this.videoEl.duration;
+          // Dimensions may be 0x0 for audio-only direct files, in which
+          // case handleDimensionsChange() below wouldn't notify — do it
+          // here too so duration still reaches the UI in that case.
+          this.notifyMediaInfo();
         }
         this.handleDimensionsChange();
         this.applyPendingSeek();
@@ -253,6 +257,21 @@ class PlayerControllerClass {
       });
     } else if (this.videoEl && this.videoEl.canPlayType('application/vnd.apple.mpegurl')) {
       this.videoEl.src = variant.url;
+    }
+  }
+
+  // For a direct (non-HLS) video/audio file — no manifest, no hls.js
+  // involved. The browser's native <video> fetches and plays it directly;
+  // duration/dimensions arrive via the loadedmetadata listener wired in init().
+  loadDirectMedia(url) {
+    this.resetMediaInfo();
+    if (this.hls) {
+      this.hls.destroy();
+      this.hls = null;
+    }
+    this.notifyStatus('Loading media...');
+    if (this.videoEl) {
+      this.videoEl.src = url;
     }
   }
 

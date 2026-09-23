@@ -2,6 +2,22 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { PlaylistParser } = require('../lib/parser.js');
 
+test('PlaylistParser.looksLikeM3u8 accepts valid playlists and rejects other content', () => {
+  assert.ok(PlaylistParser.looksLikeM3u8('#EXTM3U\n#EXT-X-VERSION:3\n'));
+  assert.ok(
+    PlaylistParser.looksLikeM3u8('\n\n  #EXTM3U\nlow/index.m3u8'),
+    'tolerates leading whitespace'
+  );
+  assert.ok(!PlaylistParser.looksLikeM3u8(''), 'empty body is not a playlist');
+  assert.ok(
+    !PlaylistParser.looksLikeM3u8('<!DOCTYPE html><html>...'),
+    'HTML error page is not a playlist'
+  );
+  // A raw MP4's first bytes ("ftyp" box) decoded as text, e.g. from a direct
+  // video link mistakenly pasted in place of a .m3u8 manifest URL.
+  assert.ok(!PlaylistParser.looksLikeM3u8('\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom'));
+});
+
 test('PlaylistParser resolves sub-playlist from master playlist', () => {
   const masterM3u8 = `#EXTM3U
 #EXT-X-VERSION:3

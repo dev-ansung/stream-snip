@@ -14,6 +14,7 @@ test('StegoConstants provides expected message types and storage keys', () => {
   assert.equal(MSG_TYPES.GET_PAGE_TITLE, 'GET_PAGE_TITLE');
   assert.equal(MSG_TYPES.PAGE_TITLE_CHANGED, 'PAGE_TITLE_CHANGED');
   assert.equal(MSG_TYPES.STREAM_METADATA_UPDATED, 'STREAM_METADATA_UPDATED');
+  assert.equal(MSG_TYPES.ADD_MANUAL_STREAM, 'ADD_MANUAL_STREAM');
   assert.equal(STORAGE_KEYS.TAB_STREAMS, 'tabStreams');
   assert.equal(STORAGE_KEYS.STREAM_METADATA, 'streamMetadata');
   assert.equal(STORAGE_KEYS.POPUP_STATE_PREFIX, 'stego_popup_state_');
@@ -27,4 +28,9 @@ test('StegoConstants generates correct popup state keys', () => {
 test('StegoConstants defines sane safety limits', () => {
   assert.equal(CONFIG.DEFAULT_CONCURRENCY, 6);
   assert.ok(CONFIG.MAX_SAFE_CLIP_BYTES > 1024 * 1024 * 1024);
+});
+
+test('StegoConstants defines quick cut defaults', () => {
+  assert.equal(CONFIG.DEFAULT_QUICK_CUT_MINUTES, 10);
+  assert.equal(STORAGE_KEYS.QUICK_CUT_MINUTES, 'stego_quick_cut_minutes');
 });

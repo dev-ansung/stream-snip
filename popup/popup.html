@@ -7,89 +7,147 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <header>
-      <div class="header-left">
-        <h1>🎬 StegoClip</h1>
-        <span id="streamCount" class="badge">0 streams</span>
+    <!-- Top Navigation Bar (4 Tabs) -->
+    <nav class="app-nav">
+      <button type="button" class="nav-tab active" data-tab="videos" id="tabBtnVideos">
+        <span class="nav-icon">🎥</span> Videos <span id="streamCount" class="badge">0</span>
+      </button>
+      <button type="button" class="nav-tab" data-tab="preview" id="tabBtnPreview">
+        <span class="nav-icon">✂️</span> Preview
+      </button>
+      <button type="button" class="nav-tab" data-tab="downloads" id="tabBtnDownloads">
+        <span class="nav-icon">⬇️</span> Downloads
+        <span id="activeDlBadge" class="badge badge-pulse" style="display: none">0</span>
+      </button>
+      <button type="button" class="nav-tab" data-tab="settings" id="tabBtnSettings">
+        <span class="nav-icon">⚙️</span> Settings
+      </button>
+    </nav>
+
+    <!-- Tab 1: Videos (Sniffer) -->
+    <section id="panelVideos" class="tab-panel active">
+      <div class="panel-header">
+        <div class="search-box">
+          <input type="text" id="streamSearchInput" placeholder="Filter caught media..." />
+        </div>
+        <div class="header-actions">
+          <button
+            type="button"
+            id="btnRefreshStreams"
+            class="icon-btn"
+            title="Refresh captured streams"
+          >
+            🔄 Refresh
+          </button>
+          <button
+            type="button"
+            id="btnClearStreams"
+            class="icon-btn"
+            title="Clear detected streams"
+          >
+            🗑️ Clear
+          </button>
+        </div>
       </div>
-      <div class="header-right">
+
+      <div class="filter-chips">
+        <button type="button" class="filter-chip active" data-filter="all">All</button>
+        <button type="button" class="filter-chip" data-filter="hls">HLS</button>
+        <button type="button" class="filter-chip" data-filter="direct">Direct</button>
+      </div>
+
+      <div class="manual-stream-row">
+        <input type="text" id="manualStreamUrl" placeholder="Paste .m3u8 or media URL..." />
+        <button type="button" id="btnAddManualStream" class="secondary-btn">➕ Add</button>
+      </div>
+
+      <div id="videoCardList" class="video-card-list">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div id="emptyVideosState" class="empty-state">
+        <div class="empty-icon">🔍</div>
+        <div class="empty-title">No Media Detected</div>
+        <div class="empty-desc">Play a video on the page or paste a media URL above.</div>
+      </div>
+    </section>
+
+    <!-- Tab 2: Preview (Player & Sub-second Clipper) -->
+    <section id="panelPreview" class="tab-panel">
+      <div class="preview-header">
+        <button type="button" id="btnBackToVideos" class="text-btn">← Back to Videos</button>
+        <span id="currentLoadedStreamTitle" class="loaded-stream-title">No stream loaded</span>
+      </div>
+
+      <div class="stream-select-wrapper" style="display: none">
+        <label for="streamSelect">Select Stream:</label>
+        <select id="streamSelect">
+          <option value="">Searching for active streams...</option>
+        </select>
+      </div>
+
+      <div class="player-container card">
+        <video id="previewPlayer" controls playsinline></video>
+        <div class="stream-status-bar">
+          <span id="videoInfo" class="meta-info">Duration: --:--</span>
+          <span id="activeQualityBadge" class="badge-subtle">Auto</span>
+        </div>
         <button
-          id="btnRefreshStreams"
           type="button"
-          class="header-action-btn"
-          title="Refresh captured streams"
+          id="btnSyncTimeline"
+          class="secondary-btn sync-timeline-btn"
+          title="Jump the preview to the page's current playback position and mirror its seeks"
         >
-          🔄 Refresh
+          🔗 Sync Timeline with Page
         </button>
       </div>
-    </header>
 
-    <main class="app-layout">
-      <!-- Left Column: Video Preview & Stream Media Details -->
-      <div class="player-column card">
-        <section class="section video-section">
-          <video id="previewPlayer" controls playsinline></video>
-          <div class="stream-status-bar">
-            <span id="videoInfo" class="meta-info">Duration: --:--</span>
-            <span id="activeQualityBadge" class="badge-subtle">Auto</span>
+      <!-- Media Stream Info -->
+      <div class="card media-info-card">
+        <div class="media-info-header">
+          <span class="media-info-title">📊 Stream Details</span>
+          <span id="mediaLiveIndicator" class="badge-live">Live</span>
+        </div>
+        <div class="media-info-grid">
+          <div class="media-info-item">
+            <span class="media-info-label">Resolution</span>
+            <span id="mediaResolution" class="media-info-value">Detecting...</span>
           </div>
-        </section>
-
-        <!-- Media Stream Information -->
-        <section class="section media-info-section">
-          <div class="media-info-header">
-            <span class="media-info-title">📊 Media Stream Info</span>
-            <span id="mediaLiveIndicator" class="badge-live">Live</span>
+          <div class="media-info-item">
+            <span class="media-info-label">Bitrate</span>
+            <span id="mediaBitrate" class="media-info-value">--</span>
           </div>
-          <div class="media-info-grid">
-            <div class="media-info-item">
-              <span class="media-info-label">Resolution</span>
-              <span id="mediaResolution" class="media-info-value">Detecting...</span>
-            </div>
-            <div class="media-info-item">
-              <span class="media-info-label">Bitrate</span>
-              <span id="mediaBitrate" class="media-info-value">--</span>
-            </div>
-            <div class="media-info-item">
-              <span class="media-info-label">Codecs</span>
-              <span id="mediaCodecs" class="media-info-value">--</span>
-            </div>
-            <div class="media-info-item">
-              <span class="media-info-label">Duration</span>
-              <span id="mediaDuration" class="media-info-value">--:--</span>
-            </div>
-            <div class="media-info-item">
-              <span class="media-info-label">Segments</span>
-              <span id="mediaSegments" class="media-info-value">--</span>
-            </div>
-            <div class="media-info-item">
-              <span class="media-info-label">Est. File Size</span>
-              <span id="mediaEstSize" class="media-info-value">--</span>
-            </div>
+          <div class="media-info-item">
+            <span class="media-info-label">Codecs</span>
+            <span id="mediaCodecs" class="media-info-value">--</span>
           </div>
-        </section>
+          <div class="media-info-item">
+            <span class="media-info-label">Duration</span>
+            <span id="mediaDuration" class="media-info-value">--:--</span>
+          </div>
+          <div class="media-info-item">
+            <span class="media-info-label">Segments</span>
+            <span id="mediaSegments" class="media-info-value">--</span>
+          </div>
+          <div class="media-info-item">
+            <span class="media-info-label">Est. File Size</span>
+            <span id="mediaEstSize" class="media-info-value">--</span>
+          </div>
+        </div>
       </div>
 
-      <!-- Right Column: Stream Details, Range & Download Controls -->
-      <div class="controls-column card">
-        <!-- Stream Selector -->
-        <section class="section">
-          <label for="streamSelect">Select Stream:</label>
-          <select id="streamSelect">
-            <option value="">Searching for active streams...</option>
-          </select>
-        </section>
-
+      <!-- Clipper Controls Card -->
+      <div class="card clipper-controls-card">
         <!-- Quality / Resolution Selector -->
-        <section class="section" id="qualitySection" style="display: none">
+        <div class="field-group" id="qualitySection" style="display: none">
           <label for="qualitySelect">Quality / Resolution:</label>
           <select id="qualitySelect">
             <option value="">Loading qualities...</option>
           </select>
-        </section>
+        </div>
 
         <!-- Range Selection Controls -->
-        <section class="section range-section">
+        <div class="range-section">
           <div class="field-row">
             <div class="field-group">
               <label for="startTime">Start Time:</label>
@@ -116,10 +174,33 @@
             <label> <input type="checkbox" id="fullVideoToggle" /> Download Full Video </label>
             <span id="clipDurationText" class="meta-info">Clip: 00:00</span>
           </div>
-        </section>
+
+          <div class="quick-cut-row">
+            <button
+              type="button"
+              id="btnQuickCut"
+              class="secondary-btn"
+              title="Cut N minutes centered on the current playback time"
+            >
+              ⚡ Quick Cut
+            </button>
+            <div class="quick-cut-config">
+              <input
+                type="number"
+                id="quickCutMinutes"
+                min="1"
+                max="180"
+                step="1"
+                value="10"
+                title="Quick Cut window size in minutes"
+              />
+              <span class="meta-info">min</span>
+            </div>
+          </div>
+        </div>
 
         <!-- Output & Download -->
-        <section class="section action-section">
+        <div class="action-section">
           <div class="field-row">
             <div class="field-group" style="flex: 2">
               <label for="filenameInput">Filename:</label>
@@ -145,74 +226,110 @@
             <progress id="downloadProgress" value="0" max="100"></progress>
             <div id="progressStatus" class="meta-info">Preparing download...</div>
           </div>
-        </section>
+        </div>
       </div>
-    </main>
+    </section>
 
-    <!-- Dedicated Focused Download Screen (Active in mode=download) -->
-    <div id="downloadManagerCard" class="download-manager-card card" style="display: none">
-      <div class="download-card-header">
-        <div class="download-card-title">
-          <span class="download-icon">📥</span>
+    <!-- Tab 3: Downloads (In-place download management & history) -->
+    <section id="panelDownloads" class="tab-panel">
+      <div id="downloadManagerCard" class="card download-manager-card">
+        <div class="section-title">
+          <span>Active Downloads</span>
+        </div>
+        <div id="activeTasksContainer" class="active-tasks-list">
+          <div id="noActiveDlMessage" class="empty-hint">No active downloads in progress.</div>
+        </div>
+
+        <div class="history-header">
+          <span class="section-title">Download History</span>
+          <button type="button" id="btnClearHistory" class="text-btn">🗑️ Clear History</button>
+        </div>
+        <div id="downloadHistoryList" class="download-history-list">
+          <div id="noHistoryMessage" class="empty-hint">No completed downloads yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 4: Settings -->
+    <section id="panelSettings" class="tab-panel">
+      <div class="card settings-card">
+        <h3 class="settings-title">🔍 Sniffer Settings</h3>
+        <div class="setting-row">
           <div>
-            <h2>StegoClip Downloader</h2>
-            <div id="dlTaskSubtitle" class="meta-info">Preparing segment download...</div>
+            <label class="setting-label" for="settingMinSize">Min file size filter</label>
+            <div class="setting-desc">
+              Ignore direct media smaller than this to block tracker audio/icons
+            </div>
+          </div>
+          <div class="setting-control">
+            <input type="number" id="settingMinSize" value="50" min="0" max="10240" step="10" />
+            <span class="meta-info">KB</span>
           </div>
         </div>
-        <span id="dlStatusBadge" class="badge">Downloading</span>
-      </div>
-
-      <div class="download-card-details">
-        <div class="dl-detail-row">
-          <span class="dl-detail-label">File:</span>
-          <span id="dlFilename" class="dl-detail-val">video_clip.mp4</span>
-        </div>
-        <div class="dl-detail-row">
-          <span class="dl-detail-label">Quality:</span>
-          <span id="dlQuality" class="dl-detail-val">--</span>
-        </div>
-        <div class="dl-detail-row">
-          <span class="dl-detail-label">Clip Range:</span>
-          <span id="dlClipRange" class="dl-detail-val">--</span>
+        <div class="setting-row">
+          <div>
+            <label class="setting-label" for="settingStegoStrip">Strip stego comments</label>
+            <div class="setting-desc">Unwrap stego-encoded HLS chunks cleanly</div>
+          </div>
+          <div class="setting-control">
+            <input type="checkbox" id="settingStegoStrip" checked />
+          </div>
         </div>
       </div>
 
-      <div class="download-card-progress">
-        <div class="dl-progress-header">
-          <span id="dlProgressPercentage" class="dl-progress-percentage">0%</span>
-          <span id="dlProgressSpeed" class="dl-progress-speed">0.0 MB/s</span>
+      <div class="card settings-card">
+        <h3 class="settings-title">✂️ Clipper & Downloader</h3>
+        <div class="setting-row">
+          <div>
+            <label class="setting-label" for="settingDefaultFormat">Default Export Format</label>
+            <div class="setting-desc">Default output container</div>
+          </div>
+          <div class="setting-control">
+            <select id="settingDefaultFormat">
+              <option value="mp4" selected>MP4</option>
+              <option value="ts">TS</option>
+              <option value="mp3">MP3</option>
+            </select>
+          </div>
         </div>
-        <progress id="dlProgressBar" value="0" max="100"></progress>
-        <div class="dl-progress-footer">
-          <span id="dlProgressSegments" class="meta-info">0 / 0 segments</span>
-          <span id="dlProgressEta" class="meta-info">Estimating time...</span>
+        <div class="setting-row">
+          <div>
+            <label class="setting-label" for="settingMp3Bitrate">Default MP3 Bitrate</label>
+            <div class="setting-desc">Quality when exporting to audio</div>
+          </div>
+          <div class="setting-control">
+            <select id="settingMp3Bitrate">
+              <option value="128">128 kbps</option>
+              <option value="192" selected>192 kbps</option>
+              <option value="320">320 kbps</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div>
+            <label class="setting-label" for="settingConcurrency">Download Concurrency</label>
+            <div class="setting-desc">Parallel segment fetch limit</div>
+          </div>
+          <div class="setting-control">
+            <select id="settingConcurrency">
+              <option value="1">1 (Safe)</option>
+              <option value="3">3</option>
+              <option value="5" selected>5 (Fast)</option>
+              <option value="8">8 (Maximum)</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      <div id="dlSuccessBanner" class="dl-success-banner" style="display: none">
-        <span>✅ Saved file to your Downloads folder!</span>
-      </div>
-
-      <div class="download-card-actions">
-        <label class="dl-auto-close-label">
-          <input type="checkbox" id="dlAutoCloseToggle" checked />
-          Close tab automatically when finished
-        </label>
-        <div class="dl-btn-group">
-          <button type="button" id="btnCancelDownloadTab" class="danger-btn">
-            Cancel Download
-          </button>
-          <button
-            type="button"
-            id="btnCloseDownloadTab"
-            class="secondary-btn"
-            style="display: none"
-          >
-            Close Tab
-          </button>
+      <div class="card settings-card about-card">
+        <h3 class="settings-title">ℹ️ About StegoClip</h3>
+        <div class="about-version">Version 1.0.0 • Manifest V3</div>
+        <div class="about-desc">
+          High-performance HLS & media stream sniffer with lossless sub-second trimming and in-place
+          side panel downloads.
         </div>
       </div>
-    </div>
+    </section>
 
     <!-- Toast Notifications Container -->
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
@@ -229,6 +346,7 @@
     <script src="../lib/transmuxer.js"></script>
     <script src="../lib/mp3-encoder.js"></script>
     <script src="../lib/parser.js"></script>
+    <script src="../lib/stream-sniffer.js"></script>
     <script src="../lib/downloader.js"></script>
     <script src="ui-feedback.js"></script>
     <script src="player-controller.js"></script>

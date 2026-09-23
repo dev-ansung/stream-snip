@@ -113,3 +113,110 @@ test('manifest declares content_scripts pointing to existing content script', ()
   const csPath = path.join(rootDir, 'content', 'content.js');
   assert.ok(fs.existsSync(csPath), 'content/content.js file must exist');
 });
+
+test('catching is wired into its own module (background/catcher.js), separate from the service worker', () => {
+  const swSource = fs.readFileSync(path.join(rootDir, 'background', 'service_worker.js'), 'utf8');
+  const catcherPath = path.join(rootDir, 'background', 'catcher.js');
+  assert.ok(fs.existsSync(catcherPath), 'background/catcher.js must exist');
+  const catcherSource = fs.readFileSync(catcherPath, 'utf8');
+
+  assert.ok(swSource.includes('background/catcher.js'), 'service worker must import catcher.js');
+  assert.ok(
+    swSource.includes('chrome.runtime.onConnect'),
+    'Must listen for side panel connections'
+  );
+  assert.ok(
+    swSource.includes('Catcher.registerSidePanelPort'),
+    'Must hand the side panel connection to Catcher to arm/disarm'
+  );
+  assert.ok(catcherSource.includes('function armCapture'), 'Catcher must own arm/disarm');
+  assert.ok(catcherSource.includes('function disarmCapture'), 'Catcher must own arm/disarm');
+});
+
+test('manual stream URL entry is routed through Catcher', () => {
+  const swSource = fs.readFileSync(path.join(rootDir, 'background', 'service_worker.js'), 'utf8');
+  const catcherSource = fs.readFileSync(path.join(rootDir, 'background', 'catcher.js'), 'utf8');
+  assert.ok(
+    swSource.includes("request.type === 'ADD_MANUAL_STREAM'"),
+    'Service worker must route ADD_MANUAL_STREAM messages'
+  );
+  assert.ok(
+    swSource.includes('Catcher.registerManualStream'),
+    'Must delegate manual entry to Catcher rather than duplicating the logic'
+  );
+  assert.ok(
+    catcherSource.includes('async function registerManualStream'),
+    'Catcher must implement manual stream registration'
+  );
+});
+
+test("Catcher prunes a tab's streams when it has navigated away since they were captured", () => {
+  const catcherSource = fs.readFileSync(path.join(rootDir, 'background', 'catcher.js'), 'utf8');
+  assert.ok(
+    catcherSource.includes('async function pruneIfNavigatedAway'),
+    'Must discard stale streams from a since-navigated-away tab at read time, ' +
+      'since navigation cleanup only runs while a side panel is armed'
+  );
+  assert.ok(
+    catcherSource.includes('getStreamsForTab') && catcherSource.includes('pruneIfNavigatedAway'),
+    'getStreamsForTab must actually call the staleness check'
+  );
+});
+
+test("Catcher does not borrow another tab's streams once the caller names an exact tab", () => {
+  const catcherSource = fs.readFileSync(path.join(rootDir, 'background', 'catcher.js'), 'utf8');
+  assert.ok(
+    catcherSource.includes('knowsExactTab'),
+    'Falling back to lastActiveMediaTabId or "any tab with streams" must be gated on ' +
+      'not knowing which tab to target — otherwise a tab with zero streams so far ' +
+      '(the normal state right after opening the panel) incorrectly shows a ' +
+      "different, possibly stale tab's leftover data instead of an empty list"
+  );
+});
+
+test('popup.html offers a manual stream URL fallback', () => {
+  const html = fs.readFileSync(path.join(rootDir, 'popup', 'popup.html'), 'utf8');
+  assert.ok(html.includes('id="manualStreamUrl"'), 'Must have a manual stream URL input');
+  assert.ok(html.includes('id="btnAddManualStream"'), 'Must have an add-stream button');
+});
+
+test('Catcher sniffs via Content-Type, not just URL pattern', () => {
+  const catcherSource = fs.readFileSync(path.join(rootDir, 'background', 'catcher.js'), 'utf8');
+  assert.ok(
+    catcherSource.includes('chrome.webRequest.onResponseStarted'),
+    'Must inspect the response stage where Content-Type is available'
+  );
+  assert.ok(
+    catcherSource.includes('StreamSniffer.classifyMediaRequest'),
+    'Must delegate the detection decision to the decoupled lib/stream-sniffer.js'
+  );
+  assert.ok(
+    catcherSource.includes('async function registerStream'),
+    'Sniffed and manually-added streams must share one registration path'
+  );
+});
+
+test('popup.js supports direct (non-HLS) media files, not just HLS clipping', () => {
+  const popupSource = fs.readFileSync(path.join(rootDir, 'popup', 'popup.js'), 'utf8');
+  assert.ok(
+    popupSource.includes('class NotHlsError'),
+    'Must distinguish "not HLS" from a generic fetch failure so it can fall back'
+  );
+  assert.ok(
+    popupSource.includes('async function loadDirectStream'),
+    'Must have a distinct load path for direct media (no manifest/segments)'
+  );
+  assert.ok(
+    popupSource.includes('async function executeDirectDownload'),
+    'Must download direct files whole, without HLS segment/transmux logic'
+  );
+  assert.ok(
+    popupSource.includes("stream.kind === 'direct'"),
+    'Background-classified kind must steer which load/download path is used'
+  );
+});
+
+test('popup.html loads lib/stream-sniffer.js so popup.js can classify manual URLs', () => {
+  const html = fs.readFileSync(path.join(rootDir, 'popup', 'popup.html'), 'utf8');
+  assert.ok(html.includes('stream-sniffer.js'), 'popup.html must include the sniffer script');
+});

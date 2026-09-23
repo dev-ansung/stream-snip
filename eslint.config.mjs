@@ -43,7 +43,10 @@ export default [
         ...globals.webextensions,
         chrome: 'readonly',
         StegoConstants: 'readonly',
-        StegoTime: 'readonly'
+        StegoTime: 'readonly',
+        StreamSniffer: 'readonly',
+        Catcher: 'readonly',
+        module: 'readonly'
       }
     },
     rules: {
@@ -77,6 +80,7 @@ export default [
         StegoTransmuxer: 'readonly',
         StegoMp3Encoder: 'readonly',
         StegoBytes: 'readonly',
+        StreamSniffer: 'readonly',
         UiFeedback: 'readonly',
         PlayerController: 'readonly',
         StateManager: 'readonly'
@@ -119,7 +123,8 @@ export default [
         StegoTransmuxer: 'readonly',
         StegoMp3Encoder: 'readonly',
         StegoBytes: 'readonly',
-        StegoConstants: 'readonly'
+        StegoConstants: 'readonly',
+        StreamSniffer: 'readonly'
       }
     }
   },
