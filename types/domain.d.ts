@@ -109,10 +109,16 @@ export interface SnifferMediaItem {
 
 export interface DownloadTask {
   id: string;
+  downloadId?: number;
   url: string;
+  pageUrl?: string;
+  domain?: string;
   filename: string;
   format: string;
+  kind?: string;
   quality?: string;
+  hasVideo?: boolean;
+  hasAudio?: boolean;
   status: 'pending' | 'downloading' | 'processing' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   speed?: string;
@@ -124,17 +130,30 @@ export interface DownloadTask {
   error?: string;
   startedAt: number;
   completedAt?: number;
+  duration?: number;
+  formattedDuration?: string;
+  exists?: boolean;
+  abortController?: AbortController;
 }
 
 export interface DownloadHistoryItem {
   id: string;
+  downloadId?: number;
   url: string;
+  pageUrl?: string;
+  domain?: string;
   filename: string;
   format: string;
+  kind?: string;
+  quality?: string;
+  hasVideo?: boolean;
+  hasAudio?: boolean;
   size?: number;
   formattedSize?: string;
   completedAt: number;
   duration?: number;
+  formattedDuration?: string;
+  exists?: boolean;
 }
 
 export interface CatcherModule {

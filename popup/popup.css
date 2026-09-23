@@ -653,9 +653,23 @@ progress {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #e2e8f0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.history-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-count-badge {
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 9999px;
 }
 
 .active-tasks-list {
@@ -664,74 +678,307 @@ progress {
   gap: 8px;
 }
 
-.task-item-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.task-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.task-filename {
-  font-weight: 600;
-  font-size: 12px;
-  color: #0f172a;
-  word-break: break-all;
-}
-
-.task-progress-bar {
-  width: 100%;
-  height: 8px;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.task-meta {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: #64748b;
-}
-
 .download-history-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  margin-top: 4px;
 }
 
-.history-item-card {
+/* CatCatch-Style Download Card */
+.catcatch-card {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: all 0.25s ease;
+  overflow: hidden;
+}
+
+.catcatch-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* Left Accent Indicator Pill */
+.catcatch-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: #10b981;
+  transition: background 0.3s ease;
+}
+
+.catcatch-card.status-active::before {
+  background: #3b82f6;
+}
+
+.catcatch-card.status-complete::before {
+  background: #10b981;
+}
+
+.catcatch-card.status-deleted::before {
+  background: #f97316;
+}
+
+.catcatch-card.status-error::before {
+  background: #ef4444;
+}
+
+/* Header Row */
+.cc-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 10px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
   font-size: 11px;
+  color: #64748b;
+  gap: 8px;
 }
 
-.history-item-name {
+.cc-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cc-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-weight: 500;
+  color: #475569;
+}
+
+.cc-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 12px;
+  border-radius: 4px;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.cc-icon-btn:hover {
+  background: #f1f5f9;
   color: #1e293b;
+}
+
+.cc-track-icon {
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.badge-deleted {
+  background: #fee2e2;
+  color: #ef4444;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.cc-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cc-domain-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #2563eb;
+  background: #eff6ff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 180px;
 }
 
-.history-item-meta {
-  color: #64748b;
-  display: flex;
-  gap: 6px;
+.cc-domain-favicon {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.cc-btn-dismiss {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #94a3b8;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.cc-btn-dismiss:hover {
+  color: #ef4444;
+  background: #fee2e2;
+}
+
+/* Body: Title & Filename */
+.cc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cc-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+/* Active Progress Bar */
+.cc-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+  transition:
+    opacity 0.2s ease,
+    max-height 0.2s ease;
+}
+
+.cc-progress-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  overflow: hidden;
+  appearance: none;
+  border: none;
+  background: #e2e8f0;
+}
+
+.cc-progress-bar::-webkit-progress-bar {
+  background: #e2e8f0;
+  border-radius: 9999px;
+}
+
+.cc-progress-bar::-webkit-progress-value {
+  background: linear-gradient(90deg, #3b82f6, #2563eb);
+  border-radius: 9999px;
+  transition: width 0.15s ease;
+}
+
+.cc-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #64748b;
+}
+
+/* Footer Row */
+.cc-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.cc-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.badge-protocol {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.cc-bullet {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.cc-dot-green {
+  color: #10b981;
+  font-size: 10px;
+  margin-right: 2px;
+}
+
+.cc-dot-orange {
+  color: #f59e0b;
+  font-size: 10px;
+  margin-right: 2px;
+}
+
+.cc-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cc-btn-action {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.cc-btn-action:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.cc-btn-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Legacy styles fallback for backwards compatibility */
+.task-item-card {
+  display: none;
+}
+
+.history-item-card {
+  display: none;
 }
 
 /* Settings Tab */

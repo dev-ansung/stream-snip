@@ -233,16 +233,15 @@
     <!-- Tab 3: Downloads (In-place download management & history) -->
     <section id="panelDownloads" class="tab-panel">
       <div id="downloadManagerCard" class="card download-manager-card">
-        <div class="section-title">
-          <span>Active Downloads</span>
-        </div>
-        <div id="activeTasksContainer" class="active-tasks-list">
-          <div id="noActiveDlMessage" class="empty-hint">No active downloads in progress.</div>
-        </div>
-
         <div class="history-header">
-          <span class="section-title">Download History</span>
+          <div class="history-title-wrap">
+            <span class="section-title">History</span>
+            <span id="historyCountBadge" class="history-count-badge">0</span>
+          </div>
           <button type="button" id="btnClearHistory" class="text-btn">🗑️ Clear History</button>
+        </div>
+        <div id="activeTasksContainer" class="active-tasks-list" style="display: none">
+          <div id="noActiveDlMessage" class="empty-hint">No active downloads in progress.</div>
         </div>
         <div id="downloadHistoryList" class="download-history-list">
           <div id="noHistoryMessage" class="empty-hint">No completed downloads yet.</div>
