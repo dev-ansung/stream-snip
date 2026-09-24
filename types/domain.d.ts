@@ -81,6 +81,7 @@ export interface StreamSnifferModule {
   DIRECT_MEDIA_EXTENSIONS: Set<string>;
   DIRECT_MEDIA_EXACT_CONTENT_TYPES: Set<string>;
   NON_MEDIA_EXTENSIONS: Set<string>;
+  looksLikeHlsTextPlaylist(url?: string): boolean;
   isM3u8Url(url?: string): boolean;
   isM3u8ContentType(contentType?: string): boolean;
   looksLikeM3u8Request(opts?: ClassifyMediaOptions): boolean;
@@ -90,8 +91,12 @@ export interface StreamSnifferModule {
   isDirectMediaContentType(contentType?: string): boolean;
   isDirectMediaUrl(url?: string): boolean;
   looksLikeDirectMediaRequest(opts?: ClassifyMediaOptions): boolean;
-  hasConflictingExtension(url?: string): boolean;
+  hasConflictingExtension(url?: string, contentType?: string): boolean;
   classifyMediaRequest(opts?: ClassifyMediaOptions): MediaRequestKind | null;
+  resolveStreamHeaders(
+    stream?: { headers?: Record<string, string>; pageUrl?: string } | null,
+    fallbackPageUrl?: string
+  ): Record<string, string>;
 }
 
 export interface SnifferMediaItem {
@@ -158,6 +163,8 @@ export interface DownloadHistoryItem {
 
 export interface CatcherModule {
   init(): void;
+  armCapture?(): void;
+  disarmCapture?(): void;
   registerSidePanelPort(port: chrome.runtime.Port): void;
   clearTab(tabId: number): Promise<void>;
   getStreamsForTab(tabId: number): Promise<any>;

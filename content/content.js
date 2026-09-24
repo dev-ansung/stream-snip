@@ -362,9 +362,11 @@
     });
   }
 
-  // Automatically observe title changes in top-level window
-  if (typeof window !== 'undefined' && window === window.top) {
-    startTitleObserver();
+  // Automatically observe title changes in top-level window, and scan DOM media in all frames
+  if (typeof window !== 'undefined') {
+    if (window === window.top) {
+      startTitleObserver();
+    }
     setTimeout(scanDomMedia, 500);
     setTimeout(scanDomMedia, 2000);
     window.addEventListener('load', () => scanDomMedia(), { once: true });

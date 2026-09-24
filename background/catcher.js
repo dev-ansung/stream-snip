@@ -271,7 +271,16 @@ const Catcher = (() => {
   // tab-activation tracking.
 
   const SEND_HEADERS_EXTRA_INFO_SPEC = /** @type {any} */ (
-    ['requestHeaders', chrome.webRequest.OnBeforeSendHeadersOptions.EXTRA_HEADERS].filter(Boolean)
+    [
+      'requestHeaders',
+      chrome.webRequest?.OnBeforeSendHeadersOptions?.EXTRA_HEADERS || 'extraHeaders'
+    ].filter(Boolean)
+  );
+  const RESPONSE_HEADERS_EXTRA_INFO_SPEC = /** @type {any} */ (
+    [
+      'responseHeaders',
+      chrome.webRequest?.OnResponseStartedOptions?.EXTRA_HEADERS || 'extraHeaders'
+    ].filter(Boolean)
   );
 
   // Stage 1: cache each request's headers by requestId as it goes out. The
@@ -360,7 +369,7 @@ const Catcher = (() => {
     chrome.webRequest.onResponseStarted.addListener(
       handleResponseStarted,
       { urls: ['<all_urls>'] },
-      ['responseHeaders']
+      RESPONSE_HEADERS_EXTRA_INFO_SPEC
     );
     chrome.webRequest.onErrorOccurred.addListener(handleRequestError, { urls: ['<all_urls>'] });
   }
@@ -376,15 +385,14 @@ const Catcher = (() => {
     pendingRequestHeaders.clear();
   }
 
-  // The side panel (popup.js, outside of mode=download) opens a long-lived
-  // port on load; it disconnects automatically when the panel closes. That
-  // connection lifecycle is the sole signal used to arm/disarm capture.
+  // The side panel opens a long-lived port on load; it disconnects
+  // automatically when the panel closes. We track active panel ports and
+  // ensure background capture is armed.
   function registerSidePanelPort(port) {
     sidePanelPorts.add(port);
     armCapture();
     port.onDisconnect.addListener(() => {
       sidePanelPorts.delete(port);
-      if (sidePanelPorts.size === 0) disarmCapture();
     });
   }
 
@@ -487,10 +495,13 @@ const Catcher = (() => {
 
   function init() {
     loadPersistedState();
+    armCapture();
   }
 
   return {
     init,
+    armCapture,
+    disarmCapture,
     registerSidePanelPort,
     getStreamsForTab,
     registerManualStream,

@@ -537,6 +537,46 @@ function resetRangeControlsForHls() {
   if (formatSelect) formatSelect.disabled = false;
 }
 
+function resolveStreamHeaders(stream, fallbackPageUrl = '') {
+  if (typeof StreamSniffer !== 'undefined' && StreamSniffer.resolveStreamHeaders) {
+    return StreamSniffer.resolveStreamHeaders(stream, fallbackPageUrl);
+  }
+  const headers = { ...(stream?.headers || {}) };
+  const pageUrl = fallbackPageUrl || stream?.pageUrl || '';
+
+  const hasReferer = Object.keys(headers).some((k) => k.toLowerCase() === 'referer');
+  const hasOrigin = Object.keys(headers).some((k) => k.toLowerCase() === 'origin');
+
+  if (!hasReferer && pageUrl) {
+    headers['Referer'] = pageUrl;
+  }
+  if (!hasOrigin && pageUrl) {
+    try {
+      headers['Origin'] = new URL(pageUrl).origin;
+    } catch {
+      // ignore invalid URL
+    }
+  }
+  return headers;
+}
+
+async function applyDnrRulesAsync(headers) {
+  const msgType = getMsgType('APPLY_DNR_RULES');
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null;
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: msgType, headers }, (res) => {
+        if (chrome.runtime?.lastError) {
+          // ignore context errors
+        }
+        resolve(res);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 // Direct (non-HLS) media files have no segments to select a time range
 // from, so there's no clipping — just preview + full-file download. Reached
 // either because the sniffer already classified the stream as "direct" at
@@ -567,8 +607,8 @@ async function loadDirectStream(stream) {
   if (formatSelect) formatSelect.disabled = true;
   btnDownload.textContent = '⬇️ Download File';
 
-  const msgType = getMsgType('APPLY_DNR_RULES');
-  chrome.runtime.sendMessage({ type: msgType, headers: stream.headers });
+  const effectiveHeaders = resolveStreamHeaders(stream, currentTabUrl);
+  await applyDnrRulesAsync(effectiveHeaders);
 
   PlayerController.loadDirectMedia(stream.url);
 
@@ -612,11 +652,8 @@ async function loadStream(stream) {
       stream.cleanTitle || stream.pageTitle || formatStreamTitle(stream, 0);
   }
 
-  const msgType = getMsgType('APPLY_DNR_RULES');
-  chrome.runtime.sendMessage({
-    type: msgType,
-    headers: stream.headers
-  });
+  const effectiveHeaders = resolveStreamHeaders(stream, currentTabUrl);
+  await applyDnrRulesAsync(effectiveHeaders);
 
   try {
     let manifestUrl = stream.url;
@@ -625,7 +662,13 @@ async function loadStream(stream) {
       if (masterCandidate) manifestUrl = masterCandidate.url;
     }
 
-    const masterResp = await fetch(manifestUrl);
+    const fetchHeaders = { ...(effectiveHeaders || {}) };
+    delete fetchHeaders['referer'];
+    delete fetchHeaders['origin'];
+    delete fetchHeaders['user-agent'];
+    const masterResp = await fetch(manifestUrl, {
+      headers: Object.keys(fetchHeaders).length > 0 ? fetchHeaders : undefined
+    });
     const masterText = await readManifestText(masterResp);
     currentVariants = StegoParser.PlaylistParser.parseVariants(masterText, manifestUrl);
 
@@ -716,10 +759,13 @@ async function executeDirectDownload() {
   updateDownloadBadge();
   createOrUpdateActiveTaskCard(task);
 
+  const effectiveHeaders = resolveStreamHeaders(selectedStream, currentTabUrl);
+  await applyDnrRulesAsync(effectiveHeaders);
+
   try {
     const { bytes, contentType } = await downloader.downloadDirectFile(
       selectedStream.url,
-      selectedStream.headers,
+      effectiveHeaders,
       (progress) => {
         const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
         const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
@@ -864,10 +910,13 @@ async function executeDownload() {
   updateDownloadBadge();
   createOrUpdateActiveTaskCard(task);
 
+  const effectiveHeaders = resolveStreamHeaders(selectedStream, currentTabUrl);
+  await applyDnrRulesAsync(effectiveHeaders);
+
   try {
     const mergedBytes = await downloader.downloadSegments(
       overlapping,
-      selectedStream.headers,
+      effectiveHeaders,
       (progress) => {
         downloadProgress.value = progress.percent;
         const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
@@ -1048,6 +1097,9 @@ if (btnRefreshStreams) {
         targetId = tab?.id || null;
       }
       if (!targetId) targetId = currentTabId;
+      if (targetId && typeof chrome !== 'undefined' && chrome.tabs?.sendMessage) {
+        chrome.tabs.sendMessage(targetId, { type: 'SCAN_DOM_MEDIA' }).catch(() => {});
+      }
       await focusTab(targetId);
       UiFeedback.info('Sidebar refreshed.');
     } catch (err) {

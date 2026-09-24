@@ -236,3 +236,71 @@ test('isM3u8Url also matches a bare .m3u playlist extension', () => {
   assert.ok(StreamSniffer.isM3u8Url('https://cdn.example.com/audio/playlist.m3u'));
   assert.ok(StreamSniffer.isM3u8Url('https://cdn.example.com/audio/playlist.m3u?x=1'));
 });
+
+test('looksLikeHlsTextPlaylist and classifyMediaRequest handle text-based HLS manifests', () => {
+  const urlsetMaster =
+    'https://cuyyro04xrqrh.digitaloperations.space/3FjgDmcnea8S35m/hls3/01/15032/4ffwl3m042ax_,l,n,h,.urlset/master.txt';
+  const hlsPlaylist = 'https://cdn.example.com/hls3/720p/playlist.txt?token=xyz';
+  const hlsIndex = 'https://cdn.example.com/hls/index.txt';
+  const hlsManifest = 'https://cdn.example.com/live/manifest.txt#section';
+  const robots = 'https://example.com/robots.txt';
+  const license = 'https://example.com/docs/license.txt';
+
+  assert.ok(StreamSniffer.looksLikeHlsTextPlaylist(urlsetMaster));
+  assert.ok(StreamSniffer.looksLikeHlsTextPlaylist(hlsPlaylist));
+  assert.ok(StreamSniffer.looksLikeHlsTextPlaylist(hlsIndex));
+  assert.ok(StreamSniffer.looksLikeHlsTextPlaylist(hlsManifest));
+  assert.ok(!StreamSniffer.looksLikeHlsTextPlaylist(robots));
+  assert.ok(!StreamSniffer.looksLikeHlsTextPlaylist(license));
+
+  assert.equal(StreamSniffer.classifyMediaRequest({ url: urlsetMaster }), 'hls');
+  assert.equal(StreamSniffer.classifyMediaRequest({ url: hlsPlaylist }), 'hls');
+  assert.equal(StreamSniffer.classifyMediaRequest({ url: robots }), null);
+  assert.equal(StreamSniffer.classifyMediaRequest({ url: license }), null);
+
+  assert.equal(
+    StreamSniffer.classifyMediaRequest({
+      url: 'https://example.com/random.txt',
+      contentType: 'application/vnd.apple.mpegurl'
+    }),
+    'hls'
+  );
+});
+
+test('resolveStreamHeaders populates Referer and Origin from stream pageUrl or fallback', () => {
+  // Case 1: Preserves existing headers
+  const existing = StreamSniffer.resolveStreamHeaders(
+    {
+      headers: { Referer: 'https://custom.com/video', Origin: 'https://custom.com' },
+      pageUrl: 'https://fallback.com/page'
+    },
+    'https://other.com/tab'
+  );
+  assert.equal(existing.Referer, 'https://custom.com/video');
+  assert.equal(existing.Origin, 'https://custom.com');
+
+  // Case 2: Populates from stream.pageUrl
+  const fromStream = StreamSniffer.resolveStreamHeaders({
+    headers: { 'User-Agent': 'TestAgent' },
+    pageUrl: 'https://stream-site.com/watch?v=123'
+  });
+  assert.equal(fromStream.Referer, 'https://stream-site.com/watch?v=123');
+  assert.equal(fromStream.Origin, 'https://stream-site.com');
+  assert.equal(fromStream['User-Agent'], 'TestAgent');
+
+  // Case 3: Populates from fallbackPageUrl when stream.pageUrl is absent
+  const fromFallback = StreamSniffer.resolveStreamHeaders(
+    { headers: {} },
+    'https://tab-site.com/player/frame'
+  );
+  assert.equal(fromFallback.Referer, 'https://tab-site.com/player/frame');
+  assert.equal(fromFallback.Origin, 'https://tab-site.com');
+
+  // Case 4: Gracefully handles empty stream or invalid url
+  const empty = StreamSniffer.resolveStreamHeaders(null, '');
+  assert.deepEqual(empty, {});
+
+  const invalidUrl = StreamSniffer.resolveStreamHeaders({ headers: {} }, 'not-a-valid-url');
+  assert.equal(invalidUrl.Referer, 'not-a-valid-url');
+  assert.equal(invalidUrl.Origin, undefined);
+});
