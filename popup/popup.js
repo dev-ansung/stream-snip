@@ -52,7 +52,11 @@ const btnCancel = document.getElementById('btnCancel');
 const progressContainer = document.getElementById('progressContainer');
 const downloadProgress = document.getElementById('downloadProgress');
 const progressStatus = document.getElementById('progressStatus');
-const btnRefreshStreams = document.getElementById('btnRefreshStreams');
+const btnReloadExtension = document.getElementById('btnReloadExtension');
+const logTerminal = document.getElementById('logTerminal');
+const btnRefreshLogs = document.getElementById('btnRefreshLogs');
+const btnCopyLogs = document.getElementById('btnCopyLogs');
+const btnClearLogs = document.getElementById('btnClearLogs');
 
 // Tab Navigation Elements
 const tabBtns = document.querySelectorAll('.nav-tab');
@@ -1053,7 +1057,7 @@ function renderStreamList() {
 // reset the detected title/filename, and re-fetch streams for tabId (which
 // reloads the player against the current stream). Sync itself is one-shot
 // and manual now (see btnSyncTimeline below), so it's not re-enabled here.
-async function focusTab(tabId) {
+async function _focusTab(tabId) {
   if (!tabId || activeAbortController) return;
   try {
     const tab = await chrome.tabs.get(tabId);
@@ -1087,29 +1091,100 @@ async function focusTab(tabId) {
   }
 }
 
-// Event Listeners Wiring
-if (btnRefreshStreams) {
-  btnRefreshStreams.addEventListener('click', async () => {
-    btnRefreshStreams.disabled = true;
+// Extension Maintenance & Diagnostic Logs
+async function loadDiagnosticLogs() {
+  if (!logTerminal) return;
+  try {
+    const res = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'GET_LOGS' }, resolve);
+    });
+    if (!res || !Array.isArray(res.logs) || res.logs.length === 0) {
+      logTerminal.innerHTML = '<div class="log-empty">No sniffer logs recorded yet.</div>';
+      return;
+    }
+    logTerminal.innerHTML = '';
+    res.logs.forEach((entry) => {
+      const line = document.createElement('div');
+      line.className = 'log-line';
+
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'log-time';
+      const d = new Date(entry.timestamp);
+      timeSpan.textContent =
+        d.toTimeString().split(' ')[0] + '.' + String(d.getMilliseconds()).padStart(3, '0');
+
+      const badge = document.createElement('span');
+      const catLower = (entry.category || 'info').toLowerCase();
+      badge.className = `log-badge badge-${catLower}`;
+      badge.textContent = `[${entry.category || 'INFO'}]`;
+
+      const msgSpan = document.createElement('span');
+      msgSpan.className = 'log-msg';
+      msgSpan.textContent = entry.message || '';
+
+      line.appendChild(timeSpan);
+      line.appendChild(badge);
+      line.appendChild(msgSpan);
+      logTerminal.appendChild(line);
+    });
+    logTerminal.scrollTop = logTerminal.scrollHeight;
+  } catch (err) {
+    console.warn('[StegoClip:Popup] Failed to load diagnostic logs:', err);
+  }
+}
+
+if (btnReloadExtension) {
+  btnReloadExtension.addEventListener('click', () => {
+    btnReloadExtension.disabled = true;
     try {
-      let targetId = null;
-      if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        targetId = tab?.id || null;
+      if (typeof chrome !== 'undefined' && chrome.runtime?.reload) {
+        chrome.runtime.reload();
       }
-      if (!targetId) targetId = currentTabId;
-      if (targetId && typeof chrome !== 'undefined' && chrome.tabs?.sendMessage) {
-        chrome.tabs.sendMessage(targetId, { type: 'SCAN_DOM_MEDIA' }).catch(() => {});
-      }
-      await focusTab(targetId);
-      UiFeedback.info('Sidebar refreshed.');
     } catch (err) {
-      console.warn('[StegoClip:Popup] Failed to refresh streams:', err);
-      UiFeedback.error('Failed to refresh streams.');
-    } finally {
-      setTimeout(() => {
-        btnRefreshStreams.disabled = false;
-      }, 400);
+      console.warn('[StegoClip:Popup] Failed to reload extension:', err);
+      btnReloadExtension.disabled = false;
+    }
+  });
+}
+
+if (btnRefreshLogs) {
+  btnRefreshLogs.addEventListener('click', async () => {
+    await loadDiagnosticLogs();
+    UiFeedback.info('Logs refreshed.');
+  });
+}
+
+if (btnClearLogs) {
+  btnClearLogs.addEventListener('click', async () => {
+    try {
+      await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'CLEAR_LOGS' }, resolve);
+      });
+      await loadDiagnosticLogs();
+      UiFeedback.info('Logs cleared.');
+    } catch {
+      UiFeedback.error('Failed to clear logs.');
+    }
+  });
+}
+
+if (btnCopyLogs) {
+  btnCopyLogs.addEventListener('click', async () => {
+    try {
+      const res = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'GET_LOGS' }, resolve);
+      });
+      if (!res || !Array.isArray(res.logs) || res.logs.length === 0) {
+        UiFeedback.warning('No logs to copy.');
+        return;
+      }
+      const text = res.logs
+        .map((l) => `[${new Date(l.timestamp).toISOString()}] [${l.category}] ${l.message}`)
+        .join('\n');
+      await navigator.clipboard.writeText(text);
+      UiFeedback.success('Diagnostic logs copied to clipboard!');
+    } catch {
+      UiFeedback.error('Failed to copy logs.');
     }
   });
 }
@@ -1641,6 +1716,80 @@ function switchTab(tabName) {
       panel.id === `panel${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`
     );
   });
+
+  if (tabName === 'settings') {
+    loadDiagnosticLogs();
+  }
+}
+
+function createVideoCardElement(stream, idx) {
+  const card = document.createElement('div');
+  card.className = 'video-card';
+
+  const isHls = stream.kind === 'hls' || stream.url.toLowerCase().includes('.m3u8');
+  const badgeClass = isHls ? 'video-badge-hls' : 'video-badge-direct';
+  const ext = StreamSniffer?.getUrlExtension ? StreamSniffer.getUrlExtension(stream.url) : '';
+  const badgeText = isHls ? 'HLS' : ext ? ext.toUpperCase() : 'DIRECT';
+  const titleText = stream.cleanTitle || stream.pageTitle || formatStreamTitle(stream, idx);
+  const sizeText =
+    stream.formattedSize ||
+    (stream.size && typeof StegoTime !== 'undefined' ? StegoTime.formatBytes(stream.size) : '');
+
+  card.innerHTML = `
+    <div class="video-card-header">
+      <div class="video-card-title">${escapeHtml(titleText)}</div>
+      <div class="video-card-meta">
+        <span class="${badgeClass}">${badgeText}</span>
+        ${sizeText ? `<span class="badge-subtle">${sizeText}</span>` : ''}
+      </div>
+    </div>
+    <div class="video-card-url" title="${escapeHtml(stream.url)}">${escapeHtml(stream.url)}</div>
+    <div class="video-card-actions">
+      <button type="button" class="btn-card-action primary btn-preview-clip" title="Open player and trim clip">
+        ✂️ Preview & Clip
+      </button>
+      <button type="button" class="btn-card-action btn-card-download" title="Download media">
+        ⬇️ Download
+      </button>
+      <button type="button" class="btn-card-action btn-card-copy" title="Copy stream URL">
+        📋 Copy
+      </button>
+    </div>
+  `;
+
+  const btnPreview = card.querySelector('.btn-preview-clip');
+  if (btnPreview) {
+    btnPreview.addEventListener('click', async () => {
+      await loadStream(stream);
+      if (streamSelect) streamSelect.value = stream.url;
+      switchTab('preview');
+    });
+  }
+
+  const btnCardDl = card.querySelector('.btn-card-download');
+  if (btnCardDl) {
+    btnCardDl.addEventListener('click', async () => {
+      await loadStream(stream);
+      if (fullVideoToggle) fullVideoToggle.checked = true;
+      updateClipDuration();
+      switchTab('downloads');
+      await executeDownload();
+    });
+  }
+
+  const btnCardCopy = card.querySelector('.btn-card-copy');
+  if (btnCardCopy) {
+    btnCardCopy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(stream.url);
+        UiFeedback.success('Stream URL copied to clipboard!');
+      } catch {
+        UiFeedback.error('Failed to copy URL.');
+      }
+    });
+  }
+
+  return card;
 }
 
 function renderVideoCards() {
@@ -1665,74 +1814,97 @@ function renderVideoCards() {
     emptyVideosState.style.display = filtered.length === 0 ? 'block' : 'none';
   }
 
-  filtered.forEach((stream, idx) => {
-    const card = document.createElement('div');
-    card.className = 'video-card';
+  if (filtered.length === 0) return;
 
-    const isHls = stream.kind === 'hls' || stream.url.toLowerCase().includes('.m3u8');
-    const badgeClass = isHls ? 'video-badge-hls' : 'video-badge-direct';
-    const ext = StreamSniffer?.getUrlExtension ? StreamSniffer.getUrlExtension(stream.url) : '';
-    const badgeText = isHls ? 'HLS' : ext ? ext.toUpperCase() : 'DIRECT';
-    const titleText = stream.cleanTitle || stream.pageTitle || formatStreamTitle(stream, idx);
-    const sizeText =
-      stream.formattedSize ||
-      (stream.size && typeof StegoTime !== 'undefined' ? StegoTime.formatBytes(stream.size) : '');
+  /** @type {Map<string, { pageUrl: string, pageTitle: string, domain: string, latestTimestamp: number, streams: any[] }>} */
+  const groupsMap = new Map();
 
-    card.innerHTML = `
-      <div class="video-card-header">
-        <div class="video-card-title">${escapeHtml(titleText)}</div>
-        <div class="video-card-meta">
-          <span class="${badgeClass}">${badgeText}</span>
-          ${sizeText ? `<span class="badge-subtle">${sizeText}</span>` : ''}
-        </div>
-      </div>
-      <div class="video-card-url" title="${escapeHtml(stream.url)}">${escapeHtml(stream.url)}</div>
-      <div class="video-card-actions">
-        <button type="button" class="btn-card-action primary btn-preview-clip" title="Open player and trim clip">
-          ✂️ Preview & Clip
-        </button>
-        <button type="button" class="btn-card-action btn-card-download" title="Download media">
-          ⬇️ Download
-        </button>
-        <button type="button" class="btn-card-action btn-card-copy" title="Copy stream URL">
-          📋 Copy
-        </button>
-      </div>
-    `;
-
-    const btnPreview = card.querySelector('.btn-preview-clip');
-    if (btnPreview) {
-      btnPreview.addEventListener('click', async () => {
-        await loadStream(stream);
-        if (streamSelect) streamSelect.value = stream.url;
-        switchTab('preview');
+  filtered.forEach((stream) => {
+    const key = stream.pageUrl || stream.pageTitle || 'Other Media';
+    if (!groupsMap.has(key)) {
+      const domain = extractDomain(stream.pageUrl, stream.url);
+      groupsMap.set(key, {
+        pageUrl: stream.pageUrl || '',
+        pageTitle: stream.pageTitle || '',
+        domain,
+        latestTimestamp: stream.timestamp || 0,
+        streams: []
       });
     }
+    const grp = groupsMap.get(key);
+    grp.streams.push(stream);
+    if ((stream.timestamp || 0) > grp.latestTimestamp) {
+      grp.latestTimestamp = stream.timestamp || 0;
+    }
+    if (!grp.pageTitle && stream.pageTitle) {
+      grp.pageTitle = stream.pageTitle;
+    }
+  });
 
-    const btnCardDl = card.querySelector('.btn-card-download');
-    if (btnCardDl) {
-      btnCardDl.addEventListener('click', async () => {
-        await loadStream(stream);
-        if (fullVideoToggle) fullVideoToggle.checked = true;
-        updateClipDuration();
-        switchTab('downloads');
-        await executeDownload();
-      });
+  const sortedGroups = Array.from(groupsMap.values()).sort((a, b) => {
+    const aIsCurrent = Boolean(currentTabUrl && a.pageUrl && currentTabUrl.startsWith(a.pageUrl));
+    const bIsCurrent = Boolean(currentTabUrl && b.pageUrl && currentTabUrl.startsWith(b.pageUrl));
+    if (aIsCurrent && !bIsCurrent) return -1;
+    if (!aIsCurrent && bIsCurrent) return 1;
+    return b.latestTimestamp - a.latestTimestamp;
+  });
+
+  let globalIdx = 0;
+  sortedGroups.forEach((group) => {
+    const details = document.createElement('details');
+    details.className = 'video-group';
+    details.open = true;
+
+    const summary = document.createElement('summary');
+    summary.className = 'video-group-header';
+
+    const leftDiv = document.createElement('div');
+    leftDiv.className = 'video-group-left';
+
+    const chevron = document.createElement('span');
+    chevron.className = 'group-chevron';
+    chevron.textContent = '▼';
+    leftDiv.appendChild(chevron);
+
+    if (group.domain) {
+      const domainBadge = document.createElement('span');
+      domainBadge.className = 'group-domain';
+      domainBadge.textContent = group.domain;
+      leftDiv.appendChild(domainBadge);
     }
 
-    const btnCardCopy = card.querySelector('.btn-card-copy');
-    if (btnCardCopy) {
-      btnCardCopy.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(stream.url);
-          UiFeedback.success('Stream URL copied to clipboard!');
-        } catch {
-          UiFeedback.error('Failed to copy URL.');
-        }
-      });
-    }
+    const titleEl = document.createElement('span');
+    titleEl.className = 'group-title';
+    const displayTitle =
+      group.pageTitle ||
+      (group.pageUrl ? group.pageUrl.replace(/^https?:\/\//, '') : 'Captured Streams');
+    titleEl.textContent = displayTitle;
+    titleEl.title = displayTitle;
+    leftDiv.appendChild(titleEl);
 
-    videoCardList.appendChild(card);
+    const rightDiv = document.createElement('div');
+    rightDiv.className = 'video-group-right';
+
+    const countEl = document.createElement('span');
+    countEl.className = 'group-count';
+    const count = group.streams.length;
+    countEl.textContent = `${count} stream${count === 1 ? '' : 's'}`;
+    rightDiv.appendChild(countEl);
+
+    summary.appendChild(leftDiv);
+    summary.appendChild(rightDiv);
+    details.appendChild(summary);
+
+    const itemsContainer = document.createElement('div');
+    itemsContainer.className = 'video-group-items';
+
+    group.streams.forEach((stream) => {
+      const card = createVideoCardElement(stream, globalIdx++);
+      itemsContainer.appendChild(card);
+    });
+
+    details.appendChild(itemsContainer);
+    videoCardList.appendChild(details);
   });
 }
 

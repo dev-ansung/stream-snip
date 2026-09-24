@@ -93,6 +93,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.type === 'GET_LOGS') {
+    const logs = typeof Catcher !== 'undefined' && Catcher.getLogs ? Catcher.getLogs() : [];
+    sendResponse({ success: true, logs });
+    return true;
+  }
+
+  if (request.type === 'CLEAR_LOGS') {
+    if (typeof Catcher !== 'undefined' && Catcher.clearLogs) {
+      Catcher.clearLogs();
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
   if (request.type === 'APPLY_DNR_RULES') {
     // Modify headers for extension requests via Declarative Net Request
     const { headers } = request;

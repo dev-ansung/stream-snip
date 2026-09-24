@@ -171,6 +171,9 @@ export interface CatcherModule {
   registerManualStream(tabId: number, url: string): Promise<any>;
   handlePageTitleChanged(tabId: number, title: string, url?: string, cleanTitle?: string): void;
   recordMediaSize?(url: string, size: number): void;
+  getLogs?(): any[];
+  clearLogs?(): void;
+  addLog?(category: string, message: string, meta?: any): void;
 }
 
 declare global {

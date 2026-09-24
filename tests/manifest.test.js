@@ -92,11 +92,12 @@ test('manifest permissions contain expected MV3 permissions', () => {
   );
 });
 
-test('popup.html contains refresh streams button, download manager, and script tags', () => {
+test('popup.html contains extension reload button, log terminal, download manager, and script tags', () => {
   const popupHtmlPath = path.join(rootDir, 'popup', 'popup.html');
   assert.ok(fs.existsSync(popupHtmlPath));
   const html = fs.readFileSync(popupHtmlPath, 'utf8');
-  assert.ok(html.includes('id="btnRefreshStreams"'), 'Must have btnRefreshStreams');
+  assert.ok(html.includes('id="btnReloadExtension"'), 'Must have btnReloadExtension');
+  assert.ok(html.includes('id="logTerminal"'), 'Must have logTerminal');
   assert.ok(html.includes('id="toastContainer"'), 'Must have toastContainer');
   assert.ok(html.includes('id="downloadManagerCard"'), 'Must have downloadManagerCard');
   assert.ok(html.includes('ui-feedback.js'), 'Must include ui-feedback.js');
@@ -150,16 +151,15 @@ test('manual stream URL entry is routed through Catcher', () => {
   );
 });
 
-test("Catcher prunes a tab's streams when it has navigated away since they were captured", () => {
+test("Catcher preserves a tab's streams across navigation", () => {
   const catcherSource = fs.readFileSync(path.join(rootDir, 'background', 'catcher.js'), 'utf8');
   assert.ok(
-    catcherSource.includes('async function pruneIfNavigatedAway'),
-    'Must discard stale streams from a since-navigated-away tab at read time, ' +
-      'since navigation cleanup only runs while a side panel is armed'
+    catcherSource.includes('async function _pruneIfNavigatedAway'),
+    'Preserves pruneIfNavigatedAway interface without destructive auto-wiping'
   );
   assert.ok(
-    catcherSource.includes('getStreamsForTab') && catcherSource.includes('pruneIfNavigatedAway'),
-    'getStreamsForTab must actually call the staleness check'
+    catcherSource.includes('Streams are preserved across navigations'),
+    'Documents stream preservation across navigations'
   );
 });
 

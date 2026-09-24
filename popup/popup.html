@@ -33,14 +33,6 @@
         <div class="header-actions">
           <button
             type="button"
-            id="btnRefreshStreams"
-            class="icon-btn"
-            title="Refresh captured streams"
-          >
-            🔄 Refresh
-          </button>
-          <button
-            type="button"
             id="btnClearStreams"
             class="icon-btn"
             title="Clear detected streams"
@@ -327,6 +319,50 @@
               <option value="8">8 (Maximum)</option>
             </select>
           </div>
+        </div>
+      </div>
+
+      <!-- Extension Maintenance -->
+      <div class="card settings-card">
+        <h3 class="settings-title">⚙️ Extension Engine &amp; Maintenance</h3>
+        <div class="setting-row">
+          <div>
+            <label class="setting-label">Reload Extension</label>
+            <div class="setting-desc">
+              Reboot background service worker and reset sniffer listeners
+            </div>
+          </div>
+          <div class="setting-control">
+            <button
+              type="button"
+              id="btnReloadExtension"
+              class="action-btn-reload"
+              title="Reload the entire extension"
+            >
+              🔄 Reload Extension
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Diagnostic Logs -->
+      <div class="card settings-card logs-card">
+        <div class="logs-header">
+          <h3 class="settings-title">📜 Sniffer Diagnostic Logs</h3>
+          <div class="logs-actions">
+            <button type="button" id="btnRefreshLogs" class="mini-btn" title="Refresh logs">
+              🔄 Refresh
+            </button>
+            <button type="button" id="btnCopyLogs" class="mini-btn" title="Copy logs to clipboard">
+              📋 Copy
+            </button>
+            <button type="button" id="btnClearLogs" class="mini-btn" title="Clear log history">
+              🗑️ Clear
+            </button>
+          </div>
+        </div>
+        <div id="logTerminal" class="log-terminal" tabindex="0">
+          <div class="log-empty">No sniffer logs recorded yet.</div>
         </div>
       </div>
 

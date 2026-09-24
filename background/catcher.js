@@ -19,6 +19,33 @@ const Catcher = (() => {
   const pendingRequestHeaders = new Map();
   const sidePanelPorts = new Set();
 
+  const MAX_LOGS = 150;
+  const diagnosticLogs = [];
+
+  function addLog(category, message, meta = null) {
+    const timestamp = Date.now();
+    const entry = {
+      id: timestamp + Math.random(),
+      timestamp,
+      time: new Date(timestamp).toLocaleTimeString(),
+      category,
+      message,
+      ...(meta ? { meta } : {})
+    };
+    diagnosticLogs.push(entry);
+    if (diagnosticLogs.length > MAX_LOGS) {
+      diagnosticLogs.shift();
+    }
+  }
+
+  function getLogs() {
+    return [...diagnosticLogs];
+  }
+
+  function clearLogs() {
+    diagnosticLogs.length = 0;
+  }
+
   let lastActiveMediaTabId = null;
   let isArmed = false;
 
@@ -67,17 +94,19 @@ const Catcher = (() => {
   function applyTabMetadataToStreams(tabId, pageTitle, pageUrl, cleanTitle) {
     const streams = tabStreams.get(tabId) || [];
     for (const s of streams) {
-      s.pageTitle = pageTitle;
-      s.pageUrl = pageUrl;
-      s.cleanTitle = cleanTitle;
-      streamMetadata.set(s.url, {
-        url: s.url,
-        tabId,
-        pageTitle,
-        pageUrl,
-        cleanTitle,
-        timestamp: s.timestamp || Date.now()
-      });
+      if (!s.pageTitle || s.pageUrl === pageUrl) {
+        s.pageTitle = pageTitle;
+        s.pageUrl = pageUrl;
+        s.cleanTitle = cleanTitle;
+        streamMetadata.set(s.url, {
+          url: s.url,
+          tabId,
+          pageTitle,
+          pageUrl,
+          cleanTitle,
+          timestamp: s.timestamp || Date.now()
+        });
+      }
     }
     return streams;
   }
@@ -165,18 +194,10 @@ const Catcher = (() => {
     await persistState();
   }
 
-  // A tab's streams are only trustworthy for the page they were captured
-  // on. Navigation cleanup (handleBeforeNavigate below) only runs while
-  // armed, so a tab that navigated while the side panel was closed keeps
-  // showing whatever page it was last on when the panel reopens. Rather
-  // than trying to catch every navigation, this checks staleness the one
-  // time it actually matters: right before answering GET_STREAMS, against
-  // the tab's real current URL.
-  async function pruneIfNavigatedAway(tabId, liveUrl) {
-    if (!tabId || !liveUrl) return;
-    const recordedUrl = tabMetadata.get(tabId)?.url;
-    if (!recordedUrl || recordedUrl === liveUrl) return;
-    await wipeTab(tabId);
+  // Streams are preserved across navigations so users browsing multiple pages
+  // or episodes can access all previously captured streams grouped by page.
+  async function _pruneIfNavigatedAway(_tabId, _liveUrl) {
+    // Zero auto-wipe: streams are preserved across page changes
   }
 
   // Shared by both discovery paths — the webRequest sniffer and manual URL
@@ -236,8 +257,8 @@ const Catcher = (() => {
       await persistState();
     } else {
       streams.unshift(streamItem);
-      // Cap at 20 streams per tab
-      if (streams.length > 20) {
+      // Cap at 50 streams per tab across pages
+      if (streams.length > 50) {
         const removed = streams.pop();
         if (removed) streamMetadata.delete(removed.url);
       }
@@ -273,13 +294,17 @@ const Catcher = (() => {
   const SEND_HEADERS_EXTRA_INFO_SPEC = /** @type {any} */ (
     [
       'requestHeaders',
-      chrome.webRequest?.OnBeforeSendHeadersOptions?.EXTRA_HEADERS || 'extraHeaders'
+      (typeof chrome !== 'undefined' &&
+        chrome.webRequest?.OnBeforeSendHeadersOptions?.EXTRA_HEADERS) ||
+        'extraHeaders'
     ].filter(Boolean)
   );
   const RESPONSE_HEADERS_EXTRA_INFO_SPEC = /** @type {any} */ (
     [
       'responseHeaders',
-      chrome.webRequest?.OnResponseStartedOptions?.EXTRA_HEADERS || 'extraHeaders'
+      (typeof chrome !== 'undefined' &&
+        chrome.webRequest?.OnResponseStartedOptions?.EXTRA_HEADERS) ||
+        'extraHeaders'
     ].filter(Boolean)
   );
 
@@ -295,6 +320,9 @@ const Catcher = (() => {
   // cached headers would otherwise leak for the life of the service worker.
   function handleRequestError(details) {
     pendingRequestHeaders.delete(details.requestId);
+    if (details.error) {
+      addLog('WARN', `Request error on ${details.url}: ${details.error}`);
+    }
   }
 
   // Stage 2: once the response headers are in, decide whether this looks
@@ -319,13 +347,20 @@ const Catcher = (() => {
       contentDisposition,
       resourceType: type
     });
-    if (!kind) return;
-
-    // Filter out tiny direct media (< 50KB) to prevent junk/tracker/audio pings
-    if (kind === 'direct' && typeof size === 'number' && !isNaN(size) && size < 51200) {
+    if (!kind) {
+      if (type === 'media' || type === 'xmlhttprequest' || /m3u|mp4|webm|avi|flv|hls/i.test(url)) {
+        addLog('SKIP', `Skipped non-media: ${url}`, { contentType, type });
+      }
       return;
     }
 
+    // Filter out tiny direct media (< 50KB) to prevent junk/tracker/audio pings
+    if (kind === 'direct' && typeof size === 'number' && !isNaN(size) && size < 51200) {
+      addLog('SKIP', `Skipped small direct file (<50KB): ${url} (${size} B)`);
+      return;
+    }
+
+    addLog('SNIFF', `Captured ${kind.toUpperCase()}: ${url}`, { contentType, size });
     await registerStream(tabId, url, headers, { kind, size });
   }
 
@@ -346,19 +381,16 @@ const Catcher = (() => {
     }
   }
 
-  // Clean up captured streams, badge, and persisted popup state on
-  // top-level navigation start. Only registered while armed — the
-  // read-time check in pruneIfNavigatedAway is the catch-all for
-  // navigations that happen while disarmed.
-  async function handleBeforeNavigate(details) {
-    if (details.frameId === 0) {
-      await wipeTab(details.tabId);
-    }
+  // When a tab navigates, keep captured streams intact so users browsing
+  // multiple pages/episodes can still access previously captured streams.
+  async function handleBeforeNavigate(_details) {
+    // Zero auto-wipe: streams are preserved across navigations
   }
 
   function armCapture() {
     if (isArmed) return;
     isArmed = true;
+    addLog('WORKER', 'Capture armed: webRequest & navigation listeners active');
     chrome.tabs.onUpdated.addListener(handleTabsUpdated);
     chrome.webNavigation.onBeforeNavigate.addListener(handleBeforeNavigate);
     chrome.webRequest.onSendHeaders.addListener(
@@ -377,6 +409,7 @@ const Catcher = (() => {
   function disarmCapture() {
     if (!isArmed) return;
     isArmed = false;
+    addLog('WORKER', 'Capture disarmed');
     chrome.tabs.onUpdated.removeListener(handleTabsUpdated);
     chrome.webNavigation.onBeforeNavigate.removeListener(handleBeforeNavigate);
     chrome.webRequest.onSendHeaders.removeListener(cacheRequestHeaders);
@@ -417,7 +450,6 @@ const Catcher = (() => {
       try {
         liveTab = await chrome.tabs.get(tabId);
       } catch {}
-      if (liveTab?.url) await pruneIfNavigatedAway(tabId, liveTab.url);
     }
 
     const streams = tabId ? tabStreams.get(tabId) || [] : [];
@@ -506,7 +538,10 @@ const Catcher = (() => {
     getStreamsForTab,
     registerManualStream,
     handlePageTitleChanged,
-    clearTab
+    clearTab,
+    getLogs,
+    clearLogs,
+    addLog
   };
 })();
 
