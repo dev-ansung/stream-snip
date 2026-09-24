@@ -91,3 +91,20 @@ test('popup.js checks file existence on disk via chrome.downloads.search for DEL
     'Must mark item.exists = false when file is removed'
   );
 });
+
+test('canceling a download job finalizes and saves partial downloaded chunks as MP4', () => {
+  const popupSource = fs.readFileSync(path.join(rootDir, 'popup', 'popup.js'), 'utf8');
+  assert.ok(
+    popupSource.includes('partialBytes && partialBytes.byteLength > 0'),
+    'Must detect partial downloaded bytes on abort'
+  );
+  assert.ok(
+    popupSource.includes('downloader.saveToFile') &&
+      popupSource.includes("filename.replace(/\\.(ts|mp3|mp4)$/i, '') + '.mp4'"),
+    'Must save partial HLS download as MP4'
+  );
+  assert.ok(
+    popupSource.includes('transitionTaskToComplete(taskId,'),
+    'Must transition partial download to completed in-place'
+  );
+});

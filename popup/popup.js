@@ -819,10 +819,53 @@ async function executeDirectDownload() {
       exists: true
     });
   } catch (err) {
-    if (activeAbortController?.signal.aborted) {
-      progressStatus.textContent = 'Download cancelled.';
-      UiFeedback.info('Download cancelled.');
-      removeTaskCard(taskId);
+    if (activeAbortController?.signal.aborted || err.aborted) {
+      const partialBytes = err.partialBytes;
+      if (partialBytes && partialBytes.byteLength > 0) {
+        try {
+          progressStatus.textContent = 'Saving downloaded partial file...';
+          UiFeedback.info('Saving downloaded partial file...');
+
+          const ext = guessDirectFileExtension(selectedStream.url, err.contentType || '');
+          const partialFilename = `${base}.${ext}`;
+          const downloadId = await downloader.saveDirectFile(
+            partialBytes,
+            partialFilename,
+            err.contentType || 'application/octet-stream'
+          );
+
+          progressStatus.textContent = `⚠️ Cancelled: Saved ${partialFilename}!`;
+          UiFeedback.success(
+            `Cancelled: Saved partial file (${StegoTime.formatBytes(partialBytes.byteLength)})`
+          );
+
+          transitionTaskToComplete(taskId, {
+            id: taskId,
+            downloadId: typeof downloadId === 'number' ? downloadId : undefined,
+            url: selectedStream.url,
+            pageUrl: task.pageUrl,
+            domain: task.domain,
+            filename: partialFilename,
+            format: ext,
+            kind: 'direct',
+            quality: task.quality,
+            hasVideo: task.hasVideo,
+            hasAudio: task.hasAudio,
+            size: partialBytes.byteLength,
+            formattedSize: StegoTime.formatBytes(partialBytes.byteLength),
+            completedAt: Date.now(),
+            exists: true
+          });
+          return;
+        } catch (saveErr) {
+          console.warn('[StegoClip:Popup] Failed to save partial direct download:', saveErr);
+          removeTaskCard(taskId);
+        }
+      } else {
+        progressStatus.textContent = 'Download cancelled.';
+        UiFeedback.info('Download cancelled.');
+        removeTaskCard(taskId);
+      }
     } else {
       progressStatus.textContent = `❌ Error: ${err.message}`;
       UiFeedback.error(`Download error: ${err.message}`);
@@ -970,10 +1013,59 @@ async function executeDownload() {
       exists: true
     });
   } catch (err) {
-    if (activeAbortController?.signal.aborted) {
-      progressStatus.textContent = 'Download cancelled.';
-      UiFeedback.info('Download cancelled.');
-      removeTaskCard(taskId);
+    if (activeAbortController?.signal.aborted || err.aborted) {
+      const partialBytes = err.partialBytes;
+      if (partialBytes && partialBytes.byteLength > 0) {
+        try {
+          progressStatus.textContent = 'Saving downloaded partial MP4...';
+          UiFeedback.info('Saving downloaded partial MP4...');
+
+          const partialDuration = err.partialDuration || 0;
+          const partialFilename = filename.replace(/\.(ts|mp3|mp4)$/i, '') + '.mp4';
+          const downloadId = await downloader.saveToFile(
+            partialBytes,
+            partialFilename,
+            'mp4',
+            partialDuration,
+            {
+              duration: partialDuration
+            }
+          );
+
+          progressStatus.textContent = `⚠️ Cancelled: Saved ${partialFilename}!`;
+          UiFeedback.success(
+            `Cancelled: Saved partial MP4 (${StegoTime.formatBytes(partialBytes.byteLength)})`
+          );
+
+          transitionTaskToComplete(taskId, {
+            id: taskId,
+            downloadId: typeof downloadId === 'number' ? downloadId : undefined,
+            url: selectedStream.url,
+            pageUrl: task.pageUrl,
+            domain: task.domain,
+            filename: partialFilename,
+            format: 'mp4',
+            kind: 'hls',
+            quality: task.quality,
+            hasVideo: task.hasVideo,
+            hasAudio: task.hasAudio,
+            size: partialBytes.byteLength,
+            formattedSize: StegoTime.formatBytes(partialBytes.byteLength),
+            duration: partialDuration,
+            formattedDuration: StegoTime.formatDuration(partialDuration),
+            completedAt: Date.now(),
+            exists: true
+          });
+          return;
+        } catch (saveErr) {
+          console.warn('[StegoClip:Popup] Failed to save partial download:', saveErr);
+          removeTaskCard(taskId);
+        }
+      } else {
+        progressStatus.textContent = 'Download cancelled.';
+        UiFeedback.info('Download cancelled.');
+        removeTaskCard(taskId);
+      }
     } else {
       progressStatus.textContent = `❌ Error: ${err.message}`;
       UiFeedback.error(`Download error: ${err.message}`);

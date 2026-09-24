@@ -107,6 +107,59 @@ test('SegmentDownloader handles abort signal cleanly', async () => {
   }
 });
 
+test('SegmentDownloader preserves downloaded partial chunks and duration upon abort', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    const controller = new AbortController();
+    const fakeChunk1 = new Uint8Array([0x47, 0x11, 0x01, 0x02]);
+    const fakeChunk2 = new Uint8Array([0x47, 0x11, 0x03, 0x04]);
+
+    globalThis.fetch = async (url) => {
+      if (url.includes('seg0.ts')) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          arrayBuffer: async () => fakeChunk1.buffer
+        };
+      }
+      if (url.includes('seg1.ts')) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          arrayBuffer: async () => fakeChunk2.buffer
+        };
+      }
+      controller.abort();
+      throw new Error('Download aborted by user.');
+    };
+
+    const dl = new SegmentDownloader({ concurrency: 1 });
+    const segments = [
+      { index: 0, url: 'https://example.com/seg0.ts', duration: 4.0 },
+      { index: 1, url: 'https://example.com/seg1.ts', duration: 4.0 },
+      { index: 2, url: 'https://example.com/seg2.ts', duration: 4.0 }
+    ];
+
+    let caughtErr = null;
+    try {
+      await dl.downloadSegments(segments, {}, null, controller.signal);
+    } catch (err) {
+      caughtErr = err;
+    }
+
+    assert.ok(caughtErr, 'Must throw on abort');
+    assert.equal(caughtErr.aborted, true, 'Error must indicate aborted status');
+    assert.ok(caughtErr.partialBytes, 'Must preserve partialBytes');
+    assert.equal(caughtErr.completedSegments, 2, 'Must record 2 completed segments');
+    assert.equal(caughtErr.partialDuration, 8.0, 'Must record 8.0 seconds partial duration');
+    assert.equal(caughtErr.partialBytes.byteLength, fakeChunk1.byteLength + fakeChunk2.byteLength);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('SegmentDownloader retries transient failures before succeeding', async () => {
   const originalFetch = globalThis.fetch;
   let attempts = 0;
