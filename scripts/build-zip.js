@@ -22,6 +22,7 @@ const filesToInclude = [
   'background',
   'content',
   'lib',
+  'player',
   'popup',
   'icons',
   'LICENSE',

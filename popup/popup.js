@@ -17,7 +17,7 @@ let userCustomBaseName = null;
 let isDirectStreamActive = false;
 
 // DOM Elements
-const videoEl = document.getElementById('previewPlayer');
+const videoEl = /** @type {HTMLVideoElement | null} */ (document.getElementById('previewPlayer'));
 const streamSelect = document.getElementById('streamSelect');
 const streamCountBadge = document.getElementById('streamCount');
 const videoInfoEl = document.getElementById('videoInfo');
@@ -58,6 +58,7 @@ const btnRefreshStreams = document.getElementById('btnRefreshStreams');
 const tabBtns = document.querySelectorAll('.nav-tab');
 const tabPanels = document.querySelectorAll('.tab-panel');
 const btnBackToVideos = document.getElementById('btnBackToVideos');
+const btnPopoutPlayer = document.getElementById('btnPopoutPlayer');
 const currentLoadedStreamTitle = document.getElementById('currentLoadedStreamTitle');
 
 // Videos Tab Elements
@@ -2263,6 +2264,59 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (btnBackToVideos) {
     btnBackToVideos.addEventListener('click', () => switchTab('videos'));
+  }
+
+  if (btnPopoutPlayer) {
+    btnPopoutPlayer.addEventListener('click', async () => {
+      if (!selectedStream) {
+        UiFeedback.warning('Please select or load a video first.');
+        return;
+      }
+
+      if (videoEl && !videoEl.paused) {
+        videoEl.pause();
+      }
+
+      const streamToOpen = selectedStream;
+      const effectiveHeaders = resolveStreamHeaders(streamToOpen, currentTabUrl);
+      const currentTime = videoEl?.currentTime || 0;
+      const title =
+        streamToOpen.cleanTitle ||
+        streamToOpen.pageTitle ||
+        currentDefaultBaseName ||
+        'StegoClip Video';
+      const pageUrl = streamToOpen.pageUrl || currentTabUrl || '';
+
+      if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+        try {
+          await chrome.storage.session.set({
+            active_player_stream: {
+              url: streamToOpen.url,
+              pageUrl,
+              headers: effectiveHeaders,
+              title,
+              kind: streamToOpen.kind || 'hls',
+              time: currentTime
+            }
+          });
+        } catch {
+          // ignore storage error
+        }
+      }
+
+      const playerParams = new URLSearchParams({
+        url: streamToOpen.url,
+        title,
+        pageUrl,
+        kind: streamToOpen.kind || 'hls',
+        t: String(currentTime)
+      });
+
+      const playerUrl = chrome.runtime.getURL(`player/player.html?${playerParams.toString()}`);
+      if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+        chrome.tabs.create({ url: playerUrl });
+      }
+    });
   }
 
   filterChips.forEach((chip) => {

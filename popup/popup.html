@@ -90,7 +90,17 @@
         <video id="previewPlayer" controls playsinline></video>
         <div class="stream-status-bar">
           <span id="videoInfo" class="meta-info">Duration: --:--</span>
-          <span id="activeQualityBadge" class="badge-subtle">Auto</span>
+          <div class="status-bar-right">
+            <span id="activeQualityBadge" class="badge-subtle">Auto</span>
+            <button
+              type="button"
+              id="btnPopoutPlayer"
+              class="popout-player-btn"
+              title="Open video in Video.js fullscreen tab"
+            >
+              ⛶ Fullscreen
+            </button>
+          </div>
         </div>
         <button
           type="button"

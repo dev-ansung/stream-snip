@@ -9,6 +9,7 @@ export default [
       'lib/hls.min.js',
       'lib/mux.min.js',
       'lib/lame.min.js',
+      'lib/videojs/**',
       'coverage/**',
       'dist/**'
     ]
@@ -59,15 +60,16 @@ export default [
     }
   },
 
-  // Popup & UI scripts (Browser Window with Chrome APIs)
+  // Popup, Player & UI scripts (Browser Window with Chrome APIs)
   {
-    files: ['popup/**/*.js'],
+    files: ['popup/**/*.js', 'player/**/*.js'],
     languageOptions: {
       globals: {
         ...globals.browser,
         ...globals.webextensions,
         ...globals.node,
         chrome: 'readonly',
+        videojs: 'readonly',
         Hls: 'readonly',
         muxjs: 'readonly',
         lamejs: 'readonly',

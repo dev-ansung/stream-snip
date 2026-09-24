@@ -182,6 +182,32 @@ video {
   margin-top: 6px;
 }
 
+.status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.popout-player-btn {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.15s ease;
+}
+
+.popout-player-btn:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
 .meta-info {
   font-size: 11px;
   color: #64748b;

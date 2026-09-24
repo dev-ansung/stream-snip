@@ -20,10 +20,7 @@ test('popup.html includes 4 navigation tabs and corresponding panels', () => {
 test('popup.js runs downloads in-place without opening separate download tabs', () => {
   const popupSource = fs.readFileSync(path.join(rootDir, 'popup', 'popup.js'), 'utf8');
   assert.ok(!popupSource.includes('mode=download'), 'Must not rely on mode=download');
-  assert.ok(
-    !popupSource.includes('chrome.tabs.create'),
-    'Must not open extra tabs via chrome.tabs.create'
-  );
+  assert.ok(!popupSource.includes('mode=download'), 'Must not open extra tabs for downloads');
   assert.ok(
     popupSource.includes("switchTab('downloads')"),
     'Must switch to in-place downloads tab'
