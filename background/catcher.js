@@ -49,13 +49,6 @@ const Catcher = (() => {
   let lastActiveMediaTabId = null;
   let isArmed = false;
 
-  function getPopupStateKeySafe(tabId) {
-    if (typeof StegoConstants !== 'undefined' && StegoConstants.getPopupStateKey) {
-      return StegoConstants.getPopupStateKey(tabId);
-    }
-    return `stego_popup_state_${tabId}`;
-  }
-
   function getMsgTypeSafe(key) {
     return (typeof StegoConstants !== 'undefined' && StegoConstants.MSG_TYPES?.[key]) || key;
   }
@@ -177,9 +170,8 @@ const Catcher = (() => {
     }
   }
 
-  // Wipes everything tracked for a tab: captured streams, metadata, badge,
-  // and its persisted popup state. Shared by navigation cleanup, tab close,
-  // manual clear, and the stale-data check below.
+  // Wipes everything tracked for a tab: captured streams, metadata, and badge.
+  // Shared by tab close, manual clear, and the stale-data check below.
   async function wipeTab(tabId) {
     const existing = tabStreams.get(tabId) || [];
     for (const s of existing) streamMetadata.delete(s.url);
@@ -187,9 +179,6 @@ const Catcher = (() => {
     tabMetadata.delete(tabId);
     try {
       chrome.action.setBadgeText({ tabId, text: '' });
-    } catch {}
-    try {
-      await chrome.storage.local.remove([getPopupStateKeySafe(tabId)]);
     } catch {}
     await persistState();
   }

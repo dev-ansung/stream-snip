@@ -44,20 +44,17 @@ test('player/player.js handles fullscreen toggle and keyboard navigation', () =>
   assert.ok(js.includes('keydown'), 'Must register keydown handler');
 });
 
-test('popup.html and popup.js wire btnPopoutPlayer to chrome.tabs.create', () => {
-  const popupHtml = fs.readFileSync(path.join(rootDir, 'popup', 'popup.html'), 'utf8');
+test('stream-list wires opening player to chrome.tabs.create', () => {
+  const streamListJs = fs.readFileSync(path.join(rootDir, 'popup', 'stream-list.js'), 'utf8');
+  assert.ok(streamListJs.includes('.btn-open-player'), 'stream-list must have open-player button');
   assert.ok(
-    popupHtml.includes('id="btnPopoutPlayer"'),
-    'popup.html must have btnPopoutPlayer button'
+    streamListJs.includes('chrome.tabs.create'),
+    'stream-list must call chrome.tabs.create on open'
   );
-
-  const popupJs = fs.readFileSync(path.join(rootDir, 'popup', 'popup.js'), 'utf8');
-  assert.ok(popupJs.includes('btnPopoutPlayer'), 'popup.js must reference btnPopoutPlayer');
   assert.ok(
-    popupJs.includes('chrome.tabs.create'),
-    'popup.js must call chrome.tabs.create on popout'
+    streamListJs.includes('player/player.html'),
+    'stream-list must target player/player.html'
   );
-  assert.ok(popupJs.includes('player/player.html'), 'popup.js must target player/player.html');
 });
 
 test('player/player.html includes clipper panel, quality selector, and download controls', () => {

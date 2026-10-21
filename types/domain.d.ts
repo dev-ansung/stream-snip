@@ -97,6 +97,9 @@ export interface StreamSnifferModule {
     stream?: { headers?: Record<string, string>; pageUrl?: string } | null,
     fallbackPageUrl?: string
   ): Record<string, string>;
+  extractDomain?(urlStr?: string, fallbackUrlStr?: string): string;
+  guessDirectFileExtension?(url?: string, contentType?: string): string;
+  escapeHtml?(str?: string): string;
 }
 
 export interface SnifferMediaItem {
@@ -214,6 +217,9 @@ declare global {
   var UiFeedback: any;
   var PlayerController: any;
   var StateManager: any;
+  var StreamList: any;
+  var DownloadsManager: any;
+  var SettingsController: any;
   var Hls: any;
   var lamejs: any;
 

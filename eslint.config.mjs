@@ -86,7 +86,10 @@ export default [
         StreamSniffer: 'readonly',
         UiFeedback: 'readonly',
         PlayerController: 'readonly',
-        StateManager: 'readonly'
+        StateManager: 'readonly',
+        StreamList: 'readonly',
+        DownloadsManager: 'readonly',
+        SettingsController: 'readonly'
       }
     }
   },
