@@ -181,7 +181,11 @@ async function handleStartDownload(request, sendResponse) {
         try {
           if (isDirect) {
             const ext = guessDirectFileExtension(task?.url || '', err.contentType || '');
-            const partialFilename = `${filename.replace(/\.[^/.]+$/, '')}.${ext}`;
+            const partialFilename =
+              typeof StegoTime !== 'undefined' && StegoTime.buildPartialFilename
+                ? StegoTime.buildPartialFilename(filename, ext)
+                : `${filename.replace(/\.[^/.]+$/, '').replace(/\.partial$/i, '')}.partial.${ext}`;
+
             partialDownloadId = await downloader.saveDirectFile(
               partialBytes,
               partialFilename,
@@ -231,7 +235,11 @@ async function handleStartDownload(request, sendResponse) {
           }
 
           const partialDuration = err.partialDuration || 0;
-          const partialFilename = filename.replace(/\.(ts|mp3|mp4)$/i, '') + '.mp4';
+          const partialFilename =
+            typeof StegoTime !== 'undefined' && StegoTime.buildPartialFilename
+              ? StegoTime.buildPartialFilename(filename, 'mp4')
+              : `${filename.replace(/\.(ts|mp3|mp4)$/i, '').replace(/\.partial$/i, '')}.partial.mp4`;
+
           partialDownloadId = await downloader.saveToFile(
             partialBytes,
             partialFilename,

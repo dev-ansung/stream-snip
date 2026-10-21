@@ -61,6 +61,8 @@ test('player/player.html includes clipper panel, quality selector, and download 
   const htmlPath = path.join(rootDir, 'player', 'player.html');
   const html = fs.readFileSync(htmlPath, 'utf8');
 
+  assert.ok(html.includes('id="playerTitle"'), 'Must define playerTitle element');
+  assert.ok(html.includes('id="playerTitleInput"'), 'Must define playerTitleInput element');
   assert.ok(html.includes('id="clipperPanel"'), 'Must define clipperPanel');
   assert.ok(html.includes('id="clipStart"'), 'Must define clipStart input');
   assert.ok(html.includes('id="clipEnd"'), 'Must define clipEnd input');
@@ -84,6 +86,8 @@ test('player/player.js implements hotkey clipping and offscreen download communi
   assert.ok(js.includes('CANCEL_DOWNLOAD'), 'Must dispatch CANCEL_DOWNLOAD');
   assert.ok(js.includes('DOWNLOAD_PROGRESS'), 'Must handle DOWNLOAD_PROGRESS');
   assert.ok(js.includes('DOWNLOAD_COMPLETE'), 'Must handle DOWNLOAD_COMPLETE');
+  assert.ok(js.includes('enterTitleEdit'), 'Must support header title editing');
+  assert.ok(js.includes('buildTrimmedFilename'), 'Must use buildTrimmedFilename for downloads');
 });
 
 test('scripts/build-zip.js includes player and offscreen directories in filesToInclude', () => {

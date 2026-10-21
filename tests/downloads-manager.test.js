@@ -100,9 +100,11 @@ test('canceling a download job finalizes and saves partial downloaded chunks as 
   );
   assert.ok(
     offscreenSource.includes('downloader.saveToFile') &&
-      offscreenSource.includes("filename.replace(/\\.(ts|mp3|mp4)$/i, '') + '.mp4'"),
+      (offscreenSource.includes('buildPartialFilename') ||
+        offscreenSource.includes('.partial.mp4')),
     'Must save partial HLS download as MP4 in offscreen'
   );
+
   const dlSource = fs.readFileSync(path.join(rootDir, 'popup', 'downloads-manager.js'), 'utf8');
   assert.ok(
     dlSource.includes('transitionTaskToComplete(taskId,'),
