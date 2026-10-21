@@ -323,43 +323,62 @@ const StreamList = (() => {
     }
   }
 
+  let _probeGeneration = 0;
+
+  function syncBadgeWithCount(tabId, count) {
+    if (!tabId || typeof chrome === 'undefined') return;
+    const badgeText = count > 0 ? String(count) : '';
+    if (chrome.action?.setBadgeText) {
+      try {
+        chrome.action.setBadgeText({ tabId, text: badgeText });
+        if (count > 0 && chrome.action.setBadgeBackgroundColor) {
+          chrome.action.setBadgeBackgroundColor({ tabId, color: '#3B82F6' });
+        }
+      } catch {}
+    }
+    if (chrome.runtime?.sendMessage) {
+      chrome.runtime
+        .sendMessage({
+          type: 'SYNC_FILTERED_STREAMS',
+          tabId,
+          streams: currentStreams
+        })
+        .catch(() => {});
+    }
+  }
+
   async function setStreams(streams, tabUrl = '', tabFavicon = '', tabId = null) {
     if (tabUrl) currentTabUrl = tabUrl;
     if (tabFavicon) _currentTabFaviconUrl = tabFavicon;
     if (tabId !== null) currentTabId = tabId;
 
     const rawList = Array.isArray(streams) ? [...streams] : [];
-    if (typeof StreamFetcher !== 'undefined' && StreamFetcher.probeAndFilterStreams) {
-      currentStreams = await StreamFetcher.probeAndFilterStreams(rawList, {
-        fallbackPageUrl: currentTabUrl
-      });
-    } else {
-      currentStreams = rawList;
-    }
 
+    // Fast render path: immediately display sniffed streams (preserving any existing probed metadata)
+    const initialList = rawList.map((raw) => {
+      const existing = currentStreams.find((s) => s.url === raw.url);
+      return existing ? { ...existing, ...raw } : raw;
+    });
+
+    currentStreams = initialList;
     updateBadge();
     renderVideoCards();
+    syncBadgeWithCount(currentTabId, currentStreams.length);
 
-    // Synchronize extension icon badge with the filtered loadable stream count
-    if (currentTabId && typeof chrome !== 'undefined') {
-      const badgeText = currentStreams.length > 0 ? String(currentStreams.length) : '';
-      if (chrome.action?.setBadgeText) {
-        try {
-          chrome.action.setBadgeText({ tabId: currentTabId, text: badgeText });
-          if (currentStreams.length > 0 && chrome.action.setBadgeBackgroundColor) {
-            chrome.action.setBadgeBackgroundColor({ tabId: currentTabId, color: '#3B82F6' });
-          }
-        } catch {}
-      }
-      if (chrome.runtime?.sendMessage) {
-        chrome.runtime
-          .sendMessage({
-            type: 'SYNC_FILTERED_STREAMS',
-            tabId: currentTabId,
-            streams: currentStreams
-          })
-          .catch(() => {});
-      }
+    // Asynchronous probe path: enrich with duration/resolution and prune unloadable streams
+    const generation = ++_probeGeneration;
+    if (typeof StreamFetcher !== 'undefined' && StreamFetcher.probeAndFilterStreams) {
+      try {
+        const probed = await StreamFetcher.probeAndFilterStreams(rawList, {
+          fallbackPageUrl: currentTabUrl
+        });
+        if (generation === _probeGeneration) {
+          currentStreams = probed;
+          updateBadge();
+          renderVideoCards();
+          syncBadgeWithCount(currentTabId, currentStreams.length);
+        }
+      } catch {}
     }
   }
 

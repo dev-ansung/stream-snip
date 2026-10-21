@@ -98,6 +98,15 @@ async function requestStreams(targetId) {
   });
 }
 
+let _refreshTimer = null;
+function scheduleRefresh(targetId, delayMs = 100) {
+  if (_refreshTimer) clearTimeout(_refreshTimer);
+  _refreshTimer = setTimeout(() => {
+    _refreshTimer = null;
+    requestStreams(targetId || currentTabId);
+  }, delayMs);
+}
+
 // Runtime message dispatcher
 chrome.runtime.onMessage.addListener(async (message, _sender) => {
   const isTitleUpdateMsg =
@@ -117,7 +126,7 @@ chrome.runtime.onMessage.addListener(async (message, _sender) => {
     if (message.tabId && currentTabId && message.tabId !== currentTabId) {
       return;
     }
-    requestStreams(message.tabId || currentTabId);
+    scheduleRefresh(message.tabId || currentTabId, 50);
     return;
   }
 
@@ -141,6 +150,42 @@ chrome.runtime.onMessage.addListener(async (message, _sender) => {
     return;
   }
 });
+
+// React dynamically to active tab switches in the browser
+if (typeof chrome !== 'undefined' && chrome.tabs?.onActivated) {
+  chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    currentTabId = activeInfo.tabId;
+    try {
+      const tab = await chrome.tabs.get(currentTabId);
+      if (tab) {
+        currentTabUrl = tab.url || '';
+        currentTabFaviconUrl = tab.favIconUrl || '';
+      }
+    } catch {}
+    scheduleRefresh(currentTabId, 30);
+  });
+}
+
+// React dynamically to tab URL changes and page loads
+if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated) {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (tabId === currentTabId && (changeInfo.status === 'complete' || changeInfo.url)) {
+      scheduleRefresh(currentTabId, 100);
+    }
+  });
+}
+
+// React dynamically to storage changes if Catcher persisted new streams
+if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.tabStreams && currentTabId) {
+      const newStreams = changes.tabStreams.newValue;
+      if (newStreams && newStreams[currentTabId]) {
+        scheduleRefresh(currentTabId, 50);
+      }
+    }
+  });
+}
 
 // Bootstrap on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', async () => {

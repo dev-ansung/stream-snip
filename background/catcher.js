@@ -249,6 +249,17 @@ const Catcher = (() => {
     if (existsIndex >= 0) {
       streams[existsIndex] = { ...streams[existsIndex], ...streamItem };
       await persistState();
+      try {
+        chrome.runtime
+          .sendMessage({
+            type: getMsgTypeSafe('STREAM_DETECTED'),
+            tabId,
+            streamUrl: normalizedUrl,
+            pageTitle,
+            cleanTitle
+          })
+          .catch(() => {});
+      } catch {}
     } else {
       streams.unshift(streamItem);
       // Cap at 50 streams per tab across pages
