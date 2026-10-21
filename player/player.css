@@ -1,13 +1,18 @@
 :root {
   --bg-color: #0b0f19;
   --header-bg: #111827;
+  --panel-bg: #0f172a;
   --text-main: #f8fafc;
   --text-sub: #94a3b8;
   --border-color: #1e293b;
   --primary: #3b82f6;
   --primary-hover: #2563eb;
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
   --domain-bg: #1e293b;
   --domain-text: #38bdf8;
+  --input-bg: #1e293b;
+  --input-border: #334155;
 }
 
 * {
@@ -107,15 +112,15 @@ body {
   position: relative;
   background-color: #000;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   min-height: 0;
 }
 
 .video-wrapper {
+  flex: 1;
   width: 100%;
-  height: 100%;
   position: relative;
+  min-height: 0;
 }
 
 /* Video.js Overrides & Fullscreen Adjustments */
@@ -153,4 +158,266 @@ body {
 
 .video-js .vjs-slider {
   background-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Clipper Panel */
+.clipper-panel {
+  background-color: var(--panel-bg);
+  border-top: 1px solid var(--border-color);
+  padding: 12px 18px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 5;
+}
+
+.clipper-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-main);
+  letter-spacing: 0.01em;
+}
+
+.clipper-panel-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge-subtle {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-sub);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.clipper-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.clipper-control-group {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.range-group {
+  flex-shrink: 0;
+}
+
+.range-field,
+.options-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.range-field label,
+.options-field label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-sub);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.input-action-row {
+  display: flex;
+  align-items: center;
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.input-action-row input[type='text'] {
+  width: 70px;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 6px 8px;
+  outline: none;
+}
+
+.input-action-row .btn-action {
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  border-left: 1px solid var(--input-border);
+  color: var(--text-sub);
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.input-action-row .btn-action:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text-main);
+}
+
+.range-toggle-field {
+  display: flex;
+  align-items: center;
+  height: 32px;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-main);
+  cursor: pointer;
+  user-select: none;
+}
+
+.options-group {
+  flex: 1;
+  min-width: 200px;
+}
+
+.options-field select,
+.options-field input[type='text'] {
+  height: 32px;
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  color: var(--text-main);
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.options-field select:focus,
+.options-field input[type='text']:focus {
+  border-color: var(--primary);
+}
+
+.filename-field {
+  flex: 1;
+  min-width: 140px;
+}
+
+.action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-primary {
+  height: 32px;
+  background-color: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  height: 32px;
+  background-color: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-danger:hover {
+  background-color: var(--danger-hover);
+}
+
+/* Progress Section */
+.progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-color);
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.progress-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+progress {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+progress::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+progress::-webkit-progress-value {
+  background: var(--primary);
+  transition: width 0.15s ease;
+}
+
+progress::-moz-progress-bar {
+  background: var(--primary);
+}
+
+.progress-percent {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-main);
+  min-width: 38px;
+  text-align: right;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-sub);
 }

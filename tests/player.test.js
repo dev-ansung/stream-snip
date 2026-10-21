@@ -60,10 +60,43 @@ test('popup.html and popup.js wire btnPopoutPlayer to chrome.tabs.create', () =>
   assert.ok(popupJs.includes('player/player.html'), 'popup.js must target player/player.html');
 });
 
-test('scripts/build-zip.js includes player directory in filesToInclude', () => {
+test('player/player.html includes clipper panel, quality selector, and download controls', () => {
+  const htmlPath = path.join(rootDir, 'player', 'player.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+
+  assert.ok(html.includes('id="clipperPanel"'), 'Must define clipperPanel');
+  assert.ok(html.includes('id="clipStart"'), 'Must define clipStart input');
+  assert.ok(html.includes('id="clipEnd"'), 'Must define clipEnd input');
+  assert.ok(html.includes('id="btnSetStart"'), 'Must define btnSetStart');
+  assert.ok(html.includes('id="btnSetEnd"'), 'Must define btnSetEnd');
+  assert.ok(html.includes('id="qualitySelect"'), 'Must define qualitySelect');
+  assert.ok(html.includes('id="formatSelect"'), 'Must define formatSelect');
+  assert.ok(html.includes('id="clipFilename"'), 'Must define clipFilename input');
+  assert.ok(html.includes('id="btnDownload"'), 'Must define btnDownload');
+  assert.ok(html.includes('id="btnCancel"'), 'Must define btnCancel');
+  assert.ok(html.includes('id="downloadProgress"'), 'Must define downloadProgress');
+});
+
+test('player/player.js implements hotkey clipping and offscreen download communication', () => {
+  const jsPath = path.join(rootDir, 'player', 'player.js');
+  const js = fs.readFileSync(jsPath, 'utf8');
+
+  assert.ok(js.includes("case '[':"), 'Must handle [ hotkey for start marker');
+  assert.ok(js.includes("case ']':"), 'Must handle ] hotkey for end marker');
+  assert.ok(js.includes('START_DOWNLOAD'), 'Must dispatch START_DOWNLOAD');
+  assert.ok(js.includes('CANCEL_DOWNLOAD'), 'Must dispatch CANCEL_DOWNLOAD');
+  assert.ok(js.includes('DOWNLOAD_PROGRESS'), 'Must handle DOWNLOAD_PROGRESS');
+  assert.ok(js.includes('DOWNLOAD_COMPLETE'), 'Must handle DOWNLOAD_COMPLETE');
+});
+
+test('scripts/build-zip.js includes player and offscreen directories in filesToInclude', () => {
   const buildScript = fs.readFileSync(path.join(rootDir, 'scripts', 'build-zip.js'), 'utf8');
   assert.ok(
     buildScript.includes("'player'"),
     'build-zip.js must include player directory in distribution zip'
+  );
+  assert.ok(
+    buildScript.includes("'offscreen'"),
+    'build-zip.js must include offscreen directory in distribution zip'
   );
 });

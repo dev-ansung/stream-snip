@@ -8,7 +8,6 @@ let selectedStream = null;
 let currentVariants = [];
 let selectedVariant = null;
 let currentTimeline = null;
-let activeAbortController = null;
 let currentTabId = null;
 let currentDefaultBaseName = '';
 let userCustomBaseName = null;
@@ -22,7 +21,6 @@ const streamSelect = document.getElementById('streamSelect');
 const streamCountBadge = document.getElementById('streamCount');
 const videoInfoEl = document.getElementById('videoInfo');
 const activeQualityBadge = document.getElementById('activeQualityBadge');
-const btnSyncTimeline = document.getElementById('btnSyncTimeline');
 const manualStreamUrlInput = document.getElementById('manualStreamUrl');
 const btnAddManualStream = document.getElementById('btnAddManualStream');
 
@@ -131,7 +129,7 @@ function getHeightLabel(height) {
   return `${height}p`;
 }
 
-function getFinalizeStatusLabel(fmt) {
+function _getFinalizeStatusLabel(fmt) {
   if (fmt === 'mp4') return 'Transmuxing to MP4...';
   if (fmt === 'mp3') return 'Extracting & encoding MP3...';
   return 'Saving file...';
@@ -720,6 +718,7 @@ function guessDirectFileExtension(url, contentType) {
 
 // Direct (non-HLS) files have no segments — the whole response body is the
 // file. No transmuxing, no time-range clipping: fetch once, save as-is.
+// Background offscreen ensures partialBytes && partialBytes.byteLength > 0 is finalized on abort.
 async function executeDirectDownload() {
   if (!selectedStream) {
     UiFeedback.error('Please select a valid stream first.');
@@ -730,10 +729,7 @@ async function executeDirectDownload() {
   btnCancel.style.display = 'block';
   progressContainer.style.display = 'block';
   downloadProgress.value = 0;
-  progressStatus.textContent = 'Downloading file (0%)...';
-
-  activeAbortController = new AbortController();
-  const downloader = new StegoDownloader.SegmentDownloader();
+  progressStatus.textContent = 'Preparing direct download...';
 
   const taskId = `task_${Date.now()}`;
   const base = filenameInput.value.trim().replace(/\.\w+$/i, '') || 'video_clip';
@@ -756,8 +752,7 @@ async function executeDirectDownload() {
     status: 'downloading',
     percent: 0,
     speed: '0.0 MB/s',
-    startedAt: Date.now(),
-    abortController: activeAbortController
+    startedAt: Date.now()
   };
 
   activeDownloadTasks.set(taskId, task);
@@ -768,113 +763,19 @@ async function executeDirectDownload() {
   await applyDnrRulesAsync(effectiveHeaders);
 
   try {
-    const { bytes, contentType } = await downloader.downloadDirectFile(
-      selectedStream.url,
+    chrome.runtime.sendMessage({
+      type: getMsgType('START_DOWNLOAD'),
+      taskId,
+      task,
       effectiveHeaders,
-      (progress) => {
-        const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
-        const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
-        if (progress.percent != null) {
-          downloadProgress.value = progress.percent;
-          progressStatus.textContent = `Downloading (${progress.percent}%) • ${mb} MB (${speedMb} MB/s)`;
-        } else {
-          progressStatus.textContent = `Downloading... ${mb} MB (${speedMb} MB/s)`;
-        }
-
-        const currentTask = activeDownloadTasks.get(taskId);
-        if (currentTask) {
-          if (progress.percent != null) currentTask.percent = progress.percent;
-          currentTask.speed = `${speedMb} MB/s`;
-          updateTaskCardProgress(taskId, progress);
-        }
-      },
-      activeAbortController.signal
-    );
-
-    const ext = guessDirectFileExtension(selectedStream.url, contentType);
-    const filename = `${base}.${ext}`;
-    const downloadId = await downloader.saveDirectFile(
-      bytes,
-      filename,
-      contentType || 'application/octet-stream'
-    );
-    progressStatus.textContent = `✅ Saved ${filename} successfully!`;
-    UiFeedback.success(`Saved ${filename} successfully!`);
-
-    transitionTaskToComplete(taskId, {
-      id: taskId,
-      downloadId: typeof downloadId === 'number' ? downloadId : undefined,
-      url: selectedStream.url,
-      pageUrl: task.pageUrl,
-      domain: task.domain,
-      filename,
-      format: ext,
-      kind: 'direct',
-      quality: task.quality,
-      hasVideo: task.hasVideo,
-      hasAudio: task.hasAudio,
-      size: bytes.byteLength,
-      formattedSize: StegoTime.formatBytes(bytes.byteLength),
-      completedAt: Date.now(),
-      exists: true
+      isDirect: true
     });
   } catch (err) {
-    if (activeAbortController?.signal.aborted || err.aborted) {
-      const partialBytes = err.partialBytes;
-      if (partialBytes && partialBytes.byteLength > 0) {
-        try {
-          progressStatus.textContent = 'Saving downloaded partial file...';
-          UiFeedback.info('Saving downloaded partial file...');
-
-          const ext = guessDirectFileExtension(selectedStream.url, err.contentType || '');
-          const partialFilename = `${base}.${ext}`;
-          const downloadId = await downloader.saveDirectFile(
-            partialBytes,
-            partialFilename,
-            err.contentType || 'application/octet-stream'
-          );
-
-          progressStatus.textContent = `⚠️ Cancelled: Saved ${partialFilename}!`;
-          UiFeedback.success(
-            `Cancelled: Saved partial file (${StegoTime.formatBytes(partialBytes.byteLength)})`
-          );
-
-          transitionTaskToComplete(taskId, {
-            id: taskId,
-            downloadId: typeof downloadId === 'number' ? downloadId : undefined,
-            url: selectedStream.url,
-            pageUrl: task.pageUrl,
-            domain: task.domain,
-            filename: partialFilename,
-            format: ext,
-            kind: 'direct',
-            quality: task.quality,
-            hasVideo: task.hasVideo,
-            hasAudio: task.hasAudio,
-            size: partialBytes.byteLength,
-            formattedSize: StegoTime.formatBytes(partialBytes.byteLength),
-            completedAt: Date.now(),
-            exists: true
-          });
-          return;
-        } catch (saveErr) {
-          console.warn('[StegoClip:Popup] Failed to save partial direct download:', saveErr);
-          removeTaskCard(taskId);
-        }
-      } else {
-        progressStatus.textContent = 'Download cancelled.';
-        UiFeedback.info('Download cancelled.');
-        removeTaskCard(taskId);
-      }
-    } else {
-      progressStatus.textContent = `❌ Error: ${err.message}`;
-      UiFeedback.error(`Download error: ${err.message}`);
-      markTaskCardError(taskId, err.message);
-    }
-  } finally {
+    progressStatus.textContent = `❌ Error: ${err.message}`;
+    UiFeedback.error(`Download error: ${err.message}`);
+    markTaskCardError(taskId, err.message);
     btnDownload.disabled = false;
     btnCancel.style.display = 'none';
-    activeAbortController = null;
     activeDownloadTasks.delete(taskId);
     updateDownloadBadge();
   }
@@ -922,9 +823,7 @@ async function executeDownload() {
   downloadProgress.value = 0;
   progressStatus.textContent = `Downloading 0/${overlapping.length} segments (0%)...`;
 
-  activeAbortController = new AbortController();
   const concurrency = getConcurrency();
-  const downloader = new StegoDownloader.SegmentDownloader({ concurrency });
   const fmt = formatSelect ? formatSelect.value : 'mp4';
   const base = filenameInput.value.trim().replace(/\.(mp4|ts|mp3)$/i, '') || 'video_clip';
   const filename = `${base}.${fmt}`;
@@ -950,8 +849,7 @@ async function executeDownload() {
     totalSegments: overlapping.length,
     duration: clipPlan.duration,
     formattedDuration: StegoTime.formatDuration(clipPlan.duration),
-    startedAt: Date.now(),
-    abortController: activeAbortController
+    startedAt: Date.now()
   };
 
   activeDownloadTasks.set(taskId, task);
@@ -962,119 +860,22 @@ async function executeDownload() {
   await applyDnrRulesAsync(effectiveHeaders);
 
   try {
-    const mergedBytes = await downloader.downloadSegments(
-      overlapping,
+    chrome.runtime.sendMessage({
+      type: getMsgType('START_DOWNLOAD'),
+      taskId,
+      task,
+      segments: overlapping,
       effectiveHeaders,
-      (progress) => {
-        downloadProgress.value = progress.percent;
-        const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
-        const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
-        progressStatus.textContent = `Downloaded ${progress.completed}/${progress.total} segments (${progress.percent}%) • ${mb} MB (${speedMb} MB/s)`;
-
-        const currentTask = activeDownloadTasks.get(taskId);
-        if (currentTask) {
-          currentTask.percent = progress.percent;
-          currentTask.speed = `${speedMb} MB/s`;
-          currentTask.completedSegments = progress.completed;
-          currentTask.totalSegments = progress.total;
-          currentTask.downloadedBytes = progress.totalBytes;
-          updateTaskCardProgress(taskId, progress);
-        }
-      },
-      activeAbortController.signal
-    );
-
-    progressStatus.textContent = getFinalizeStatusLabel(fmt);
-    const downloadId = await downloader.saveToFile(mergedBytes, filename, fmt, clipPlan.duration, {
-      trimStart: clipPlan.trimStart,
-      trimEnd: clipPlan.trimEnd,
-      duration: clipPlan.duration
-    });
-    progressStatus.textContent = `✅ Saved ${filename} successfully!`;
-    UiFeedback.success(`Saved ${filename} successfully!`);
-
-    transitionTaskToComplete(taskId, {
-      id: taskId,
-      downloadId: typeof downloadId === 'number' ? downloadId : undefined,
-      url: selectedStream.url,
-      pageUrl: task.pageUrl,
-      domain: task.domain,
-      filename,
-      format: fmt,
-      kind: 'hls',
-      quality: task.quality,
-      hasVideo: task.hasVideo,
-      hasAudio: task.hasAudio,
-      size: mergedBytes.byteLength,
-      formattedSize: StegoTime.formatBytes(mergedBytes.byteLength),
-      duration: clipPlan.duration,
-      formattedDuration: StegoTime.formatDuration(clipPlan.duration),
-      completedAt: Date.now(),
-      exists: true
+      clipPlan,
+      isDirect: false,
+      concurrency
     });
   } catch (err) {
-    if (activeAbortController?.signal.aborted || err.aborted) {
-      const partialBytes = err.partialBytes;
-      if (partialBytes && partialBytes.byteLength > 0) {
-        try {
-          progressStatus.textContent = 'Saving downloaded partial MP4...';
-          UiFeedback.info('Saving downloaded partial MP4...');
-
-          const partialDuration = err.partialDuration || 0;
-          const partialFilename = filename.replace(/\.(ts|mp3|mp4)$/i, '') + '.mp4';
-          const downloadId = await downloader.saveToFile(
-            partialBytes,
-            partialFilename,
-            'mp4',
-            partialDuration,
-            {
-              duration: partialDuration
-            }
-          );
-
-          progressStatus.textContent = `⚠️ Cancelled: Saved ${partialFilename}!`;
-          UiFeedback.success(
-            `Cancelled: Saved partial MP4 (${StegoTime.formatBytes(partialBytes.byteLength)})`
-          );
-
-          transitionTaskToComplete(taskId, {
-            id: taskId,
-            downloadId: typeof downloadId === 'number' ? downloadId : undefined,
-            url: selectedStream.url,
-            pageUrl: task.pageUrl,
-            domain: task.domain,
-            filename: partialFilename,
-            format: 'mp4',
-            kind: 'hls',
-            quality: task.quality,
-            hasVideo: task.hasVideo,
-            hasAudio: task.hasAudio,
-            size: partialBytes.byteLength,
-            formattedSize: StegoTime.formatBytes(partialBytes.byteLength),
-            duration: partialDuration,
-            formattedDuration: StegoTime.formatDuration(partialDuration),
-            completedAt: Date.now(),
-            exists: true
-          });
-          return;
-        } catch (saveErr) {
-          console.warn('[StegoClip:Popup] Failed to save partial download:', saveErr);
-          removeTaskCard(taskId);
-        }
-      } else {
-        progressStatus.textContent = 'Download cancelled.';
-        UiFeedback.info('Download cancelled.');
-        removeTaskCard(taskId);
-      }
-    } else {
-      progressStatus.textContent = `❌ Error: ${err.message}`;
-      UiFeedback.error(`Download error: ${err.message}`);
-      markTaskCardError(taskId, err.message);
-    }
-  } finally {
+    progressStatus.textContent = `❌ Error: ${err.message}`;
+    UiFeedback.error(`Download error: ${err.message}`);
+    markTaskCardError(taskId, err.message);
     btnDownload.disabled = false;
     btnCancel.style.display = 'none';
-    activeAbortController = null;
     activeDownloadTasks.delete(taskId);
     updateDownloadBadge();
   }
@@ -1150,7 +951,7 @@ function renderStreamList() {
 // reloads the player against the current stream). Sync itself is one-shot
 // and manual now (see btnSyncTimeline below), so it's not re-enabled here.
 async function _focusTab(tabId) {
-  if (!tabId || activeAbortController) return;
+  if (!tabId || activeDownloadTasks.size > 0) return;
   try {
     const tab = await chrome.tabs.get(tabId);
     if (
@@ -1163,10 +964,6 @@ async function _focusTab(tabId) {
     ) {
       console.info('[StegoClip:Popup] Ignoring non-content tab:', tab?.url);
       return;
-    }
-
-    if (currentTabId) {
-      sendSyncStateToPage(false, currentTabId);
     }
     currentDefaultBaseName = '';
     userCustomBaseName = null;
@@ -1461,8 +1258,13 @@ btnDownload.addEventListener('click', async () => {
 });
 
 btnCancel.addEventListener('click', () => {
-  if (activeAbortController) {
-    activeAbortController.abort();
+  for (const taskId of activeDownloadTasks.keys()) {
+    chrome.runtime
+      .sendMessage({
+        type: getMsgType('CANCEL_DOWNLOAD'),
+        taskId
+      })
+      .catch(() => {});
   }
 });
 
@@ -1542,66 +1344,8 @@ if (manualStreamUrlInput) {
   });
 }
 
-async function sendSyncStateToPage(enabled, tabId = currentTabId) {
-  if (!tabId || typeof chrome === 'undefined' || !chrome.tabs?.sendMessage) return;
-  const expectedDuration = PlayerController.getDuration();
-  const type = getMsgType(enabled ? 'ENABLE_TAB_SEEK_SYNC' : 'DISABLE_TAB_SEEK_SYNC');
-
-  try {
-    await chrome.tabs.sendMessage(tabId, {
-      type,
-      expectedDuration
-    });
-    console.info(
-      `[StegoClip:Popup] Dispatched ${type} (expectedDuration: ${expectedDuration.toFixed(2)}s) to tab ${tabId}`
-    );
-  } catch {
-    // Ignored if tab does not have content script running
-  }
-}
-
-window.addEventListener('beforeunload', () => {
-  if (currentTabId) {
-    sendSyncStateToPage(false);
-  }
-});
-
-// Manual, one-shot: attaches seek-mirroring on the page's video for this
-// tab and immediately jumps the preview to its current playback position.
-// Replaces the old automatic behavior (which used to fire on every stream
-// load / tab switch) with an explicit user action.
-async function syncTimelineWithPage() {
-  if (!currentTabId) {
-    UiFeedback.error('No active tab to sync with.');
-    return;
-  }
-
-  await sendSyncStateToPage(true, currentTabId);
-
-  const getMediaTimeType = getMsgType('GET_PAGE_MEDIA_TIME');
-  const previewDuration = PlayerController.getDuration();
-  chrome.tabs.sendMessage(
-    currentTabId,
-    { type: getMediaTimeType, expectedDuration: previewDuration },
-    (response) => {
-      if (chrome.runtime.lastError || !response?.success) {
-        UiFeedback.error('Could not find a playing video on that page.');
-        return;
-      }
-      if (typeof response.currentTime === 'number') {
-        PlayerController.seekTo(response.currentTime);
-      }
-      UiFeedback.info('Synced preview to page playback.', 2000);
-    }
-  );
-}
-
-if (btnSyncTimeline) {
-  btnSyncTimeline.addEventListener('click', syncTimelineWithPage);
-}
-
-// Synchronize preview player when seek occurs on the host webpage player, or reload on STREAM_DETECTED / title updates
-chrome.runtime.onMessage.addListener(async (message, sender) => {
+// Reload on STREAM_DETECTED / title updates
+chrome.runtime.onMessage.addListener(async (message, _sender) => {
   const isTitleUpdateMsg =
     message?.type === 'STREAM_METADATA_UPDATED' || message?.type === 'PAGE_TITLE_CHANGED';
 
@@ -1642,49 +1386,94 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
     return;
   }
 
-  const isSeekMsg = message?.type === 'TAB_MEDIA_SEEK';
-
-  if (isSeekMsg && typeof message.currentTime === 'number') {
-    console.info(
-      '[StegoClip:Popup] Received TAB_MEDIA_SEEK:',
-      message,
-      'sender tab:',
-      sender?.tab?.id,
-      'currentTabId:',
-      currentTabId
-    );
-
-    if (sender?.tab?.id && currentTabId && sender.tab.id !== currentTabId) {
-      // Check if the sender is actually the user's currently active tab
-      try {
-        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (activeTab && activeTab.id === sender.tab.id) {
-          console.info('[StegoClip:Popup] Adopting sender as active currentTabId:', sender.tab.id);
-          currentTabId = sender.tab.id;
-        } else {
-          console.info('[StegoClip:Popup] Ignored seek from background tab:', sender.tab.id);
-          return;
+  if (message?.type === getMsgType('DOWNLOAD_PROGRESS')) {
+    const { taskId, progress } = message;
+    if (progress) {
+      if (activeDownloadTasks.has(taskId)) {
+        const currentTask = activeDownloadTasks.get(taskId);
+        if (progress.percent != null) {
+          downloadProgress.value = progress.percent;
+          currentTask.percent = progress.percent;
         }
-      } catch {
-        return;
+        const mb = (progress.totalBytes / (1024 * 1024)).toFixed(1);
+        const speedMb = (progress.speedBytesPerSec / (1024 * 1024)).toFixed(1);
+        progressStatus.textContent = `Downloading (${progress.percent || 0}%) • ${mb} MB (${speedMb} MB/s)`;
+        currentTask.speed = `${speedMb} MB/s`;
+        updateTaskCardProgress(taskId, progress);
       }
     }
+    return;
+  }
 
-    // Verify video duration matches the preview player duration within tolerance
-    const previewDuration = PlayerController.getDuration();
-    if (previewDuration > 0 && typeof message.duration === 'number' && message.duration > 0) {
-      const durationDiff = Math.abs(message.duration - previewDuration);
-      if (durationDiff > 2.0) {
-        console.info(
-          `[StegoClip:Popup] Ignored seek from unrelated video (page duration: ${message.duration.toFixed(
-            2
-          )}s vs preview: ${previewDuration.toFixed(2)}s)`
-        );
-        return;
+  if (message?.type === getMsgType('DOWNLOAD_COMPLETE')) {
+    const { taskId, result } = message;
+    const task = activeDownloadTasks.get(taskId);
+    btnDownload.disabled = false;
+    btnCancel.style.display = 'none';
+
+    if (result?.success) {
+      progressStatus.textContent = `✅ Saved ${result.filename} successfully!`;
+      UiFeedback.success(`Saved ${result.filename} successfully!`);
+      if (task) {
+        transitionTaskToComplete(taskId, {
+          id: taskId,
+          downloadId: result.downloadId,
+          url: task.url,
+          pageUrl: task.pageUrl,
+          domain: task.domain,
+          filename: result.filename,
+          format: result.format,
+          kind: task.kind,
+          quality: task.quality,
+          hasVideo: task.hasVideo,
+          hasAudio: task.hasAudio,
+          size: result.size,
+          formattedSize: StegoTime.formatBytes(result.size),
+          duration: result.duration,
+          formattedDuration: StegoTime.formatDuration(result.duration),
+          completedAt: Date.now(),
+          exists: true
+        });
       }
+    } else if (result?.cancelled) {
+      if (result.savedPartial) {
+        progressStatus.textContent = `⚠️ Cancelled: Saved ${result.filename}!`;
+        UiFeedback.success(`Cancelled: Saved partial file (${StegoTime.formatBytes(result.size)})`);
+        if (task) {
+          transitionTaskToComplete(taskId, {
+            id: taskId,
+            downloadId: result.downloadId,
+            url: task.url,
+            pageUrl: task.pageUrl,
+            domain: task.domain,
+            filename: result.filename,
+            format: result.format,
+            kind: task.kind,
+            quality: task.quality,
+            hasVideo: task.hasVideo,
+            hasAudio: task.hasAudio,
+            size: result.size,
+            formattedSize: StegoTime.formatBytes(result.size),
+            duration: result.duration,
+            formattedDuration: StegoTime.formatDuration(result.duration),
+            completedAt: Date.now(),
+            exists: true
+          });
+        }
+      } else {
+        progressStatus.textContent = 'Download cancelled.';
+        UiFeedback.info('Download cancelled.');
+        removeTaskCard(taskId);
+      }
+    } else {
+      progressStatus.textContent = `❌ Error: ${result?.error || 'Download failed'}`;
+      UiFeedback.error(`Download error: ${result?.error || 'Download failed'}`);
+      markTaskCardError(taskId, result?.error || 'Download failed');
     }
 
-    PlayerController.seekTo(message.currentTime);
+    activeDownloadTasks.delete(taskId);
+    updateDownloadBadge();
+    return;
   }
 });
 
@@ -2178,6 +1967,12 @@ function wireCardEvents(card, item, isLiveTask) {
       btnCancelTask.addEventListener('click', (e) => {
         e.stopPropagation();
         if (item.abortController) item.abortController.abort();
+        chrome.runtime
+          .sendMessage({
+            type: getMsgType('CANCEL_DOWNLOAD'),
+            taskId: item.id
+          })
+          .catch(() => {});
       });
     }
   } else {
@@ -2644,6 +2439,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await loadSettings();
   await loadDownloadHistory();
+
+  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+    chrome.runtime.sendMessage({ type: 'GET_ACTIVE_DOWNLOADS' }, (res) => {
+      if (chrome.runtime?.lastError) return;
+      if (res?.success && Array.isArray(res.active)) {
+        for (const item of res.active) {
+          if (!activeDownloadTasks.has(item.taskId)) {
+            activeDownloadTasks.set(item.taskId, item.task);
+            createOrUpdateActiveTaskCard(item.task);
+          }
+        }
+        updateDownloadBadge();
+      }
+    });
+  }
 
   PlayerController.init(videoEl, {
     onMediaInfoChanged: (info) => {

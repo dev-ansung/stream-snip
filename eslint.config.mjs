@@ -60,9 +60,9 @@ export default [
     }
   },
 
-  // Popup, Player & UI scripts (Browser Window with Chrome APIs)
+  // Popup, Player, Offscreen & UI scripts (Browser Window with Chrome APIs)
   {
-    files: ['popup/**/*.js', 'player/**/*.js'],
+    files: ['popup/**/*.js', 'player/**/*.js', 'offscreen/**/*.js'],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -73,6 +73,7 @@ export default [
         Hls: 'readonly',
         muxjs: 'readonly',
         lamejs: 'readonly',
+        PlaylistParser: 'readonly',
         StegoConstants: 'readonly',
         StegoDecoder: 'readonly',
         StegoTime: 'readonly',

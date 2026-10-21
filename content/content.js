@@ -5,9 +5,6 @@
  */
 
 (function () {
-  const trackedVideos = new Map();
-  let seekingDebounceTimer = null;
-
   /**
    * Recursively finds all HTML5 video elements in a root or document,
    * including those nested within Shadow DOM roots.
@@ -66,131 +63,6 @@
       }
     }
     return largest || videos[0];
-  }
-
-  /**
-   * Dispatches the video seek/playhead time to the extension background and side panel.
-   */
-  function handleVideoSeek(video) {
-    if (!video) return;
-    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
-
-    const currentTime = typeof video.currentTime === 'number' ? video.currentTime : 0;
-    const duration = typeof video.duration === 'number' ? video.duration : 0;
-    const paused = Boolean(video.paused);
-
-    console.info('[StegoClip:Content] Video seek detected:', {
-      currentTime,
-      duration,
-      paused
-    });
-
-    try {
-      chrome.runtime
-        .sendMessage({
-          type: 'TAB_MEDIA_SEEK',
-          currentTime,
-          duration,
-          paused
-        })
-        .catch(() => {
-          // Ignored when side panel / popup is not actively listening
-        });
-    } catch {
-      // Ignored
-    }
-  }
-
-  function onVideoSeeking(video) {
-    if (seekingDebounceTimer) clearTimeout(seekingDebounceTimer);
-    seekingDebounceTimer = setTimeout(() => {
-      handleVideoSeek(video);
-    }, 80);
-  }
-
-  function onVideoSeeked(video) {
-    if (seekingDebounceTimer) {
-      clearTimeout(seekingDebounceTimer);
-      seekingDebounceTimer = null;
-    }
-    handleVideoSeek(video);
-  }
-
-  /**
-   * Attaches seek listeners to a video element if not already observed.
-   */
-  function attachVideoListeners(video) {
-    if (!video || trackedVideos.has(video)) return;
-
-    const seekedHandler = () => onVideoSeeked(video);
-    const seekingHandler = () => onVideoSeeking(video);
-
-    trackedVideos.set(video, { seekedHandler, seekingHandler });
-    console.info('[StegoClip:Content] Attached seek listeners to video element:', video);
-
-    video.addEventListener('seeked', seekedHandler, { passive: true });
-    video.addEventListener('seeking', seekingHandler, { passive: true });
-  }
-
-  let activeObserver = null;
-  let isSyncActive = false;
-
-  function startSync(expectedDuration = 0) {
-    if (isSyncActive) return;
-    isSyncActive = true;
-    console.info(
-      '[StegoClip:Content] Enabling seek sync on demand. expectedDuration:',
-      expectedDuration
-    );
-
-    const videos = findAllVideos(document);
-    videos.forEach((v) => {
-      // If expectedDuration is known and video duration is known, verify match
-      if (expectedDuration > 0 && v.duration && Math.abs(v.duration - expectedDuration) > 2.0) {
-        return;
-      }
-      attachVideoListeners(v);
-    });
-
-    if (!activeObserver && typeof MutationObserver !== 'undefined') {
-      activeObserver = new MutationObserver((mutations) => {
-        if (!isSyncActive) return;
-        for (const mutation of mutations) {
-          for (const node of mutation.addedNodes) {
-            if (node.nodeType !== Node.ELEMENT_NODE) continue;
-            if (node.tagName === 'VIDEO') {
-              attachVideoListeners(node);
-            } else if (node.querySelectorAll) {
-              findAllVideos(node).forEach(attachVideoListeners);
-            }
-          }
-        }
-      });
-
-      const target = document.body || document.documentElement;
-      if (target) {
-        activeObserver.observe(target, { childList: true, subtree: true });
-      }
-    }
-  }
-
-  function stopSync() {
-    if (!isSyncActive) return;
-    isSyncActive = false;
-    console.info('[StegoClip:Content] Disabling seek sync, cleaning up observers & listeners');
-
-    if (activeObserver) {
-      activeObserver.disconnect();
-      activeObserver = null;
-    }
-
-    for (const [video, handlers] of trackedVideos.entries()) {
-      try {
-        video.removeEventListener('seeked', handlers.seekedHandler);
-        video.removeEventListener('seeking', handlers.seekingHandler);
-      } catch {}
-    }
-    trackedVideos.clear();
   }
 
   let titleObserver = null;
@@ -321,18 +193,6 @@
         return false;
       }
 
-      if (message?.type === 'ENABLE_TAB_SEEK_SYNC') {
-        startSync(message?.expectedDuration || 0);
-        sendResponse({ success: true, active: true });
-        return false;
-      }
-
-      if (message?.type === 'DISABLE_TAB_SEEK_SYNC') {
-        stopSync();
-        sendResponse({ success: true, active: false });
-        return false;
-      }
-
       if (message?.type === 'GET_PAGE_TITLE') {
         const rawTitle = (typeof document !== 'undefined' ? document.title : '') || '';
         const cleanTitle = getCleanTitle(rawTitle);
@@ -342,21 +202,6 @@
           cleanTitle,
           url: typeof location !== 'undefined' ? location.href : ''
         });
-        return false;
-      }
-
-      if (message?.type === 'GET_PAGE_MEDIA_TIME') {
-        const primary = findPrimaryVideo(message?.expectedDuration || 0);
-        if (primary) {
-          sendResponse({
-            success: true,
-            currentTime: primary.currentTime,
-            duration: primary.duration || 0,
-            paused: primary.paused
-          });
-        } else {
-          sendResponse({ success: false });
-        }
         return false;
       }
     });
@@ -376,11 +221,6 @@
     module.exports = {
       findAllVideos,
       findPrimaryVideo,
-      handleVideoSeek,
-      attachVideoListeners,
-      startSync,
-      stopSync,
-      isSyncActive: () => isSyncActive,
       startTitleObserver,
       stopTitleObserver,
       reportTitleChange,

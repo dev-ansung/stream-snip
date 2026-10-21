@@ -24,6 +24,7 @@ const filesToInclude = [
   'lib',
   'player',
   'popup',
+  'offscreen',
   'icons',
   'LICENSE',
   'README.md'

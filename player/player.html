@@ -37,13 +37,113 @@
             </p>
           </video>
         </div>
+
+        <!-- Clipper & Download Toolbar -->
+        <section class="clipper-panel" id="clipperPanel">
+          <div class="clipper-panel-header">
+            <span class="panel-title">✂️ Lossless Clip & Download</span>
+            <div class="clipper-panel-badges">
+              <span id="playerResolution" class="badge-subtle">--</span>
+              <span id="playerDuration" class="badge-subtle">--:--</span>
+            </div>
+          </div>
+
+          <div class="clipper-grid">
+            <!-- Range Selection -->
+            <div class="clipper-control-group range-group">
+              <div class="range-field">
+                <label for="clipStart">Start Time ([)</label>
+                <div class="input-action-row">
+                  <input type="text" id="clipStart" value="00:00" placeholder="00:00" />
+                  <button
+                    type="button"
+                    id="btnSetStart"
+                    class="btn-action"
+                    title="Set to current playhead ([)"
+                  >
+                    ⏱️ Start
+                  </button>
+                </div>
+              </div>
+              <div class="range-field">
+                <label for="clipEnd">End Time (])</label>
+                <div class="input-action-row">
+                  <input type="text" id="clipEnd" value="00:00" placeholder="00:00" />
+                  <button
+                    type="button"
+                    id="btnSetEnd"
+                    class="btn-action"
+                    title="Set to current playhead (])"
+                  >
+                    ⏱️ End
+                  </button>
+                </div>
+              </div>
+              <div class="range-toggle-field">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="fullVideoToggle" checked />
+                  <span>Full Video</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Options: Quality, Format, Filename -->
+            <div class="clipper-control-group options-group">
+              <div class="options-field" id="qualityField" style="display: none">
+                <label for="qualitySelect">Quality</label>
+                <select id="qualitySelect">
+                  <option value="">Auto / Default</option>
+                </select>
+              </div>
+              <div class="options-field">
+                <label for="formatSelect">Format</label>
+                <select id="formatSelect">
+                  <option value="mp4" selected>MP4 (Video)</option>
+                  <option value="mp3">MP3 (Audio)</option>
+                  <option value="ts">TS (Raw)</option>
+                </select>
+              </div>
+              <div class="options-field filename-field">
+                <label for="clipFilename">Filename</label>
+                <input type="text" id="clipFilename" placeholder="video_clip" />
+              </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="clipper-control-group action-group">
+              <button type="button" id="btnDownload" class="btn-primary">⬇️ Download</button>
+              <button type="button" id="btnCancel" class="btn-danger" style="display: none">
+                ✖ Cancel
+              </button>
+            </div>
+          </div>
+
+          <!-- Progress Bar & Status -->
+          <div id="progressContainer" class="progress-container" style="display: none">
+            <div class="progress-bar-wrap">
+              <progress id="downloadProgress" value="0" max="100"></progress>
+              <span id="progressPercent" class="progress-percent">0%</span>
+            </div>
+            <div class="progress-meta">
+              <span id="progressStatus" class="progress-status">Downloading...</span>
+              <span id="progressSpeed" class="progress-speed"></span>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
 
     <!-- Scripts -->
     <script src="../lib/constants.js"></script>
+    <script src="../lib/time.js"></script>
     <script src="../lib/bytes.js"></script>
     <script src="../lib/stego.js"></script>
+    <script src="../lib/parser.js"></script>
+    <script src="../lib/mux.min.js"></script>
+    <script src="../lib/transmuxer.js"></script>
+    <script src="../lib/lame.min.js"></script>
+    <script src="../lib/mp3-encoder.js"></script>
+    <script src="../lib/downloader.js"></script>
     <script src="../lib/hls.min.js"></script>
     <script src="../lib/stego-loader.js"></script>
     <script src="../lib/stream-sniffer.js"></script>

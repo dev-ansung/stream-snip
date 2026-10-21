@@ -143,4 +143,51 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true;
   }
+
+  if (request.type === 'START_DOWNLOAD') {
+    ensureOffscreenDocument()
+      .then(() => {
+        // Forward directly to ensure offscreen is awake and ready
+        chrome.runtime.sendMessage(request).catch(() => {});
+        sendResponse({ success: true });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
+  if (request.type === 'ENSURE_OFFSCREEN') {
+    ensureOffscreenDocument()
+      .then(() => sendResponse({ success: true }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 });
+
+let offscreenCreating = null;
+
+async function ensureOffscreenDocument() {
+  if (typeof chrome === 'undefined' || !chrome.offscreen) return false;
+  try {
+    if (await chrome.offscreen.hasDocument?.()) return true;
+  } catch {
+    // Fall through to create
+  }
+
+  if (offscreenCreating) {
+    await offscreenCreating;
+  } else {
+    try {
+      offscreenCreating = chrome.offscreen.createDocument({
+        url: 'offscreen/offscreen.html',
+        reasons: ['BLOBS', 'WORKERS'],
+        justification: 'Background media downloading and transmuxing'
+      });
+      await offscreenCreating;
+    } finally {
+      offscreenCreating = null;
+    }
+  }
+  return true;
+}

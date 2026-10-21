@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 // content.js per manifest.json's content_scripts order in the real page).
 globalThis.StegoTime = require('../lib/time.js');
 
-const { findAllVideos, findPrimaryVideo, handleVideoSeek } = require('../content/content.js');
+const { findAllVideos, findPrimaryVideo } = require('../content/content.js');
 
 test('findAllVideos traverses DOM and Shadow DOM roots', () => {
   const normalVideo = { tagName: 'VIDEO', id: 'v1' };
@@ -67,98 +67,6 @@ test('findPrimaryVideo prioritizes video with matching expectedDuration', () => 
 
   const matched = findPrimaryVideo(13985);
   assert.equal(matched, fakeVideos[1]);
-
-  delete global.document;
-});
-
-test('handleVideoSeek sends TAB_MEDIA_SEEK message via chrome.runtime', () => {
-  let dispatched = null;
-  global.chrome = {
-    runtime: {
-      sendMessage: async (msg) => {
-        dispatched = msg;
-        return true;
-      }
-    }
-  };
-
-  const video = {
-    videoWidth: 1280,
-    videoHeight: 720,
-    currentTime: 42.5,
-    duration: 300,
-    paused: false
-  };
-
-  handleVideoSeek(video);
-
-  assert.ok(dispatched);
-  assert.equal(dispatched.type, 'TAB_MEDIA_SEEK');
-  assert.equal(dispatched.currentTime, 42.5);
-  assert.equal(dispatched.duration, 300);
-
-  delete global.chrome;
-});
-
-test('handleVideoSeek does not discard paused or zero-dimension video', () => {
-  let dispatched = null;
-  global.chrome = {
-    runtime: {
-      sendMessage: async (msg) => {
-        dispatched = msg;
-        return true;
-      }
-    }
-  };
-
-  const pausedZeroDimVideo = {
-    videoWidth: 0,
-    videoHeight: 0,
-    currentTime: 19.3,
-    duration: 0,
-    paused: true
-  };
-
-  handleVideoSeek(pausedZeroDimVideo);
-
-  assert.ok(dispatched);
-  assert.equal(dispatched.type, 'TAB_MEDIA_SEEK');
-  assert.equal(dispatched.currentTime, 19.3);
-  assert.equal(dispatched.paused, true);
-
-  delete global.chrome;
-});
-
-test('startSync and stopSync manage listener lifecycle on demand', () => {
-  const { startSync, stopSync, isSyncActive } = require('../content/content.js');
-  const addedEvents = [];
-  const removedEvents = [];
-
-  const fakeVideo = {
-    tagName: 'VIDEO',
-    duration: 120,
-    addEventListener: (ev) => addedEvents.push(ev),
-    removeEventListener: (ev) => removedEvents.push(ev)
-  };
-
-  global.document = {
-    querySelectorAll: (sel) => {
-      if (sel === 'video') return [fakeVideo];
-      return [];
-    }
-  };
-
-  assert.equal(isSyncActive(), false);
-
-  startSync(120);
-  assert.equal(isSyncActive(), true);
-  assert.ok(addedEvents.includes('seeked'));
-  assert.ok(addedEvents.includes('seeking'));
-
-  stopSync();
-  assert.equal(isSyncActive(), false);
-  assert.ok(removedEvents.includes('seeked'));
-  assert.ok(removedEvents.includes('seeking'));
 
   delete global.document;
 });

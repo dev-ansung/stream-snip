@@ -79,11 +79,17 @@ test('manifest permissions contain expected MV3 permissions', () => {
     'downloads',
     'activeTab',
     'webNavigation',
-    'sidePanel'
+    'sidePanel',
+    'offscreen'
   ];
   for (const perm of expectedPerms) {
     assert.ok(manifest.permissions.includes(perm), `Permissions must include ${perm}`);
   }
+
+  assert.ok(
+    fs.existsSync(path.join(rootDir, 'offscreen', 'offscreen.html')),
+    'offscreen/offscreen.html must exist'
+  );
 
   assert.ok(Array.isArray(manifest.host_permissions), 'host_permissions must be an array');
   assert.ok(
