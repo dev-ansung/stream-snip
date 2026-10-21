@@ -93,6 +93,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.type === 'SYNC_FILTERED_STREAMS') {
+    if (typeof Catcher !== 'undefined' && Catcher.syncFilteredStreams) {
+      Catcher.syncFilteredStreams(request.tabId, request.streams).then(() => {
+        sendResponse({ success: true });
+      });
+      return true;
+    }
+    sendResponse({ success: false });
+    return false;
+  }
+
   if (request.type === 'GET_LOGS') {
     const logs = typeof Catcher !== 'undefined' && Catcher.getLogs ? Catcher.getLogs() : [];
     sendResponse({ success: true, logs });

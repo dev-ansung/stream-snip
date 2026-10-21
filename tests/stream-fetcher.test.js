@@ -93,11 +93,11 @@ chunk2.ts
   }
 });
 
-test('StreamFetcher.probeStream returns ok: false for inaccessible or HTTP error streams', async () => {
+test('StreamFetcher.probeStream returns ok: false for 404 or server error streams', async () => {
   StreamFetcher.clearCache();
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => {
-    return { ok: false, status: 403 };
+    return { ok: false, status: 404 };
   };
 
   try {
@@ -105,7 +105,26 @@ test('StreamFetcher.probeStream returns ok: false for inaccessible or HTTP error
     const res = await StreamFetcher.probeStream(stream);
 
     assert.equal(res.ok, false);
-    assert.ok(res.error.includes('403'));
+    assert.ok(res.error.includes('404'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('StreamFetcher.probeStream marks 403 or CORS-restricted streams as protected without dropping them', async () => {
+  StreamFetcher.clearCache();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    return { ok: false, status: 403 };
+  };
+
+  try {
+    const stream = { url: 'https://example.com/hotlink-protected.m3u8', kind: 'hls' };
+    const res = await StreamFetcher.probeStream(stream);
+
+    assert.equal(res.ok, true);
+    assert.equal(res.protected, true);
+    assert.equal(res.kind, 'hls');
   } finally {
     globalThis.fetch = originalFetch;
   }

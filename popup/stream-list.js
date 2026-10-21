@@ -151,6 +151,7 @@ const StreamList = (() => {
         <div class="video-card-title">${escapeHtml(titleText)}</div>
         <div class="video-card-meta">
           <span class="${badgeClass}">${badgeText}</span>
+          ${stream.protected ? '<span class="badge-subtle badge-protected">🔒 Protected</span>' : ''}
           ${durationText ? `<span class="badge-subtle badge-duration">⏱️ ${escapeHtml(durationText)}</span>` : ''}
           ${resText ? `<span class="badge-subtle badge-resolution">${escapeHtml(resText)}</span>` : ''}
           ${sizeText ? `<span class="badge-subtle badge-size">${sizeText}</span>` : ''}
@@ -338,6 +339,28 @@ const StreamList = (() => {
 
     updateBadge();
     renderVideoCards();
+
+    // Synchronize extension icon badge with the filtered loadable stream count
+    if (currentTabId && typeof chrome !== 'undefined') {
+      const badgeText = currentStreams.length > 0 ? String(currentStreams.length) : '';
+      if (chrome.action?.setBadgeText) {
+        try {
+          chrome.action.setBadgeText({ tabId: currentTabId, text: badgeText });
+          if (currentStreams.length > 0 && chrome.action.setBadgeBackgroundColor) {
+            chrome.action.setBadgeBackgroundColor({ tabId: currentTabId, color: '#3B82F6' });
+          }
+        } catch {}
+      }
+      if (chrome.runtime?.sendMessage) {
+        chrome.runtime
+          .sendMessage({
+            type: 'SYNC_FILTERED_STREAMS',
+            tabId: currentTabId,
+            streams: currentStreams
+          })
+          .catch(() => {});
+      }
+    }
   }
 
   function updateStreamMetadata(streams) {

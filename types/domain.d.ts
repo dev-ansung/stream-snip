@@ -100,6 +100,8 @@ export interface StreamSnifferModule {
   extractDomain?(urlStr?: string, fallbackUrlStr?: string): string;
   guessDirectFileExtension?(url?: string, contentType?: string): string;
   escapeHtml?(str?: string): string;
+  isMediaFragment?(url?: string): boolean;
+  normalizeHlsUrl?(url?: string): string;
 }
 
 export interface SnifferMediaItem {
@@ -173,6 +175,7 @@ export interface CatcherModule {
   getStreamsForTab(tabId: number): Promise<any>;
   registerManualStream(tabId: number, url: string): Promise<any>;
   handlePageTitleChanged(tabId: number, title: string, url?: string, cleanTitle?: string): void;
+  syncFilteredStreams?(tabId: number, streams: any[]): Promise<void>;
   recordMediaSize?(url: string, size: number): void;
   getLogs?(): any[];
   clearLogs?(): void;

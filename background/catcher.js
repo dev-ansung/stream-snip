@@ -213,6 +213,11 @@ const Catcher = (() => {
     const cleanTitle = getCleanTitleSafe(pageTitle);
     const streams = tabStreams.get(tabId) || [];
 
+    const normalizedUrl =
+      kind === 'hls' && typeof StreamSniffer !== 'undefined' && StreamSniffer.normalizeHlsUrl
+        ? StreamSniffer.normalizeHlsUrl(url)
+        : url;
+
     const formattedSize =
       size && size > 0
         ? typeof StegoTime !== 'undefined' && StegoTime.formatBytes
@@ -227,7 +232,7 @@ const Catcher = (() => {
     // popup.js) once it actually loads the stream, so an undefined kind
     // here is not a bug.
     const streamItem = {
-      url,
+      url: normalizedUrl,
       headers,
       timestamp: Date.now(),
       pageTitle,
@@ -238,9 +243,9 @@ const Catcher = (() => {
       ...(manual ? { manual: true } : {}),
       ...(kind ? { kind } : {})
     };
-    streamMetadata.set(url, streamItem);
+    streamMetadata.set(normalizedUrl, streamItem);
 
-    const existsIndex = streams.findIndex((s) => s.url === url);
+    const existsIndex = streams.findIndex((s) => s.url === normalizedUrl);
     if (existsIndex >= 0) {
       streams[existsIndex] = { ...streams[existsIndex], ...streamItem };
       await persistState();
@@ -263,7 +268,7 @@ const Catcher = (() => {
           .sendMessage({
             type: getMsgTypeSafe('STREAM_DETECTED'),
             tabId,
-            streamUrl: url,
+            streamUrl: normalizedUrl,
             pageTitle,
             cleanTitle
           })
@@ -346,6 +351,12 @@ const Catcher = (() => {
     // Filter out tiny direct media (< 50KB) to prevent junk/tracker/audio pings
     if (kind === 'direct' && typeof size === 'number' && !isNaN(size) && size < 51200) {
       addLog('SKIP', `Skipped small direct file (<50KB): ${url} (${size} B)`);
+      return;
+    }
+
+    // Filter out media fragments (LL-HLS or CMAF sub-second chunks)
+    if (kind === 'direct' && StreamSniffer.isMediaFragment && StreamSniffer.isMediaFragment(url)) {
+      addLog('SKIP', `Skipped media fragment: ${url}`);
       return;
     }
 
@@ -514,6 +525,19 @@ const Catcher = (() => {
     }
   }
 
+  async function syncFilteredStreams(tabId, streams) {
+    if (!tabId || !Array.isArray(streams)) return;
+    tabStreams.set(tabId, streams);
+    await persistState();
+    const count = streams.length;
+    try {
+      chrome.action.setBadgeText({ tabId, text: count > 0 ? String(count) : '' });
+      if (count > 0) {
+        chrome.action.setBadgeBackgroundColor({ tabId, color: '#3B82F6' });
+      }
+    } catch {}
+  }
+
   function init() {
     loadPersistedState();
     armCapture();
@@ -528,6 +552,7 @@ const Catcher = (() => {
     registerManualStream,
     handlePageTitleChanged,
     clearTab,
+    syncFilteredStreams,
     getLogs,
     clearLogs,
     addLog

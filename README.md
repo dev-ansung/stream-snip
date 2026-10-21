@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](package.json)
-[![Tests Passing](https://img.shields.io/badge/tests-121%20passed-brightgreen.svg)](tests/)
+[![Tests Passing](https://img.shields.io/badge/tests-124%20passed-brightgreen.svg)](tests/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 **Snip before you download.** StreamSnip is a standalone Google Chrome Extension (Manifest V3) that sniffs HLS (`.m3u8`) and direct media streams, probes duration and metadata, provides a full-featured Video.js player tab for scrubbing and lossless sub-second trimming, and processes downloads asynchronously in the background via Chrome Offscreen documents - without re-encoding a single frame.
@@ -139,7 +139,7 @@ stream-snip/
 │   ├── settings.js           # Sniffer thresholds, extension reboot, and diagnostic terminal
 │   ├── stream-list.js        # Domain-grouped stream cards, probe badges, and search
 │   └── ui-feedback.js        # Non-blocking inline notifications and toast messages
-├── tests/                    # Comprehensive unit and integration test suite (121 tests)
+├── tests/                    # Comprehensive unit and integration test suite (124 tests)
 ├── types/
 │   └── domain.d.ts           # Strict TypeScript ambient types and domain contracts
 ├── jsconfig.json             # TypeScript checkJs configuration
@@ -208,7 +208,7 @@ Run type checking:
 pnpm run typecheck
 ```
 
-Run the unit test suite (121 tests):
+Run the unit test suite (124 tests):
 
 ```bash
 pnpm test
