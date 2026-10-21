@@ -138,12 +138,23 @@ const StreamList = (() => {
       stream.formattedSize ||
       (stream.size && typeof StegoTime !== 'undefined' ? StegoTime.formatBytes(stream.size) : '');
 
+    const durationText =
+      stream.formattedDuration ||
+      (stream.duration && typeof StegoTime !== 'undefined'
+        ? StegoTime.formatDuration(stream.duration)
+        : '');
+    const resText = stream.resolution || (stream.height ? `${stream.height}p` : '');
+    const segText = stream.segmentCount ? `${stream.segmentCount} segs` : '';
+
     card.innerHTML = `
       <div class="video-card-header">
         <div class="video-card-title">${escapeHtml(titleText)}</div>
         <div class="video-card-meta">
           <span class="${badgeClass}">${badgeText}</span>
-          ${sizeText ? `<span class="badge-subtle">${sizeText}</span>` : ''}
+          ${durationText ? `<span class="badge-subtle badge-duration">⏱️ ${escapeHtml(durationText)}</span>` : ''}
+          ${resText ? `<span class="badge-subtle badge-resolution">${escapeHtml(resText)}</span>` : ''}
+          ${sizeText ? `<span class="badge-subtle badge-size">${sizeText}</span>` : ''}
+          ${segText ? `<span class="badge-subtle badge-segments">${segText}</span>` : ''}
         </div>
       </div>
       <div class="video-card-url" title="${escapeHtml(stream.url)}">${escapeHtml(stream.url)}</div>
@@ -311,11 +322,20 @@ const StreamList = (() => {
     }
   }
 
-  function setStreams(streams, tabUrl = '', tabFavicon = '', tabId = null) {
-    currentStreams = Array.isArray(streams) ? [...streams] : [];
+  async function setStreams(streams, tabUrl = '', tabFavicon = '', tabId = null) {
     if (tabUrl) currentTabUrl = tabUrl;
     if (tabFavicon) _currentTabFaviconUrl = tabFavicon;
     if (tabId !== null) currentTabId = tabId;
+
+    const rawList = Array.isArray(streams) ? [...streams] : [];
+    if (typeof StreamFetcher !== 'undefined' && StreamFetcher.probeAndFilterStreams) {
+      currentStreams = await StreamFetcher.probeAndFilterStreams(rawList, {
+        fallbackPageUrl: currentTabUrl
+      });
+    } else {
+      currentStreams = rawList;
+    }
+
     updateBadge();
     renderVideoCards();
   }
@@ -356,6 +376,19 @@ const StreamList = (() => {
 
     if (btnAddManualStream) btnAddManualStream.disabled = true;
     try {
+      if (typeof StreamFetcher !== 'undefined' && StreamFetcher.probeStream) {
+        const probe = await StreamFetcher.probeStream(
+          { url: parsed.href, pageUrl: currentTabUrl },
+          { fallbackPageUrl: currentTabUrl }
+        );
+        if (!probe.ok) {
+          if (typeof UiFeedback !== 'undefined') {
+            UiFeedback.error(`Stream could not be loaded: ${probe.error || 'inaccessible'}`);
+          }
+          return;
+        }
+      }
+
       const type =
         (typeof StegoConstants !== 'undefined' && StegoConstants.MSG_TYPES?.ADD_MANUAL_STREAM) ||
         'ADD_MANUAL_STREAM';
@@ -370,10 +403,13 @@ const StreamList = (() => {
         return;
       }
 
-      currentStreams = response.streams || currentStreams;
+      await setStreams(
+        response.streams || currentStreams,
+        currentTabUrl,
+        _currentTabFaviconUrl,
+        currentTabId
+      );
       if (manualStreamUrlInput) manualStreamUrlInput.value = '';
-      updateBadge();
-      renderVideoCards();
       if (typeof UiFeedback !== 'undefined') {
         UiFeedback.success('Stream added.');
       }
@@ -384,6 +420,9 @@ const StreamList = (() => {
 
   async function clearStreams() {
     try {
+      if (typeof StreamFetcher !== 'undefined' && StreamFetcher.clearCache) {
+        StreamFetcher.clearCache();
+      }
       const clearType =
         (typeof StegoConstants !== 'undefined' && StegoConstants.MSG_TYPES?.CLEAR_STREAMS) ||
         'CLEAR_STREAMS';

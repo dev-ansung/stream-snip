@@ -88,6 +88,7 @@ export default [
         PlayerController: 'readonly',
         StateManager: 'readonly',
         StreamList: 'readonly',
+        StreamFetcher: 'readonly',
         DownloadsManager: 'readonly',
         SettingsController: 'readonly'
       }
@@ -130,7 +131,8 @@ export default [
         StegoMp3Encoder: 'readonly',
         StegoBytes: 'readonly',
         StegoConstants: 'readonly',
-        StreamSniffer: 'readonly'
+        StreamSniffer: 'readonly',
+        StreamFetcher: 'readonly'
       }
     }
   },

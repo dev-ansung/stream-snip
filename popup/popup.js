@@ -91,7 +91,7 @@ async function requestStreams(targetId) {
       }
 
       if (typeof StreamList !== 'undefined') {
-        StreamList.setStreams(received, currentTabUrl, currentTabFaviconUrl, currentTabId);
+        await StreamList.setStreams(received, currentTabUrl, currentTabFaviconUrl, currentTabId);
       }
       resolve(undefined);
     });

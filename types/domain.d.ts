@@ -218,6 +218,7 @@ declare global {
   var PlayerController: any;
   var StateManager: any;
   var StreamList: any;
+  var StreamFetcher: any;
   var DownloadsManager: any;
   var SettingsController: any;
   var Hls: any;
