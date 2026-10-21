@@ -120,26 +120,13 @@ function getMsgType(key) {
     return;
   }
 
-  // Initialize Video.js Player
+  // Initialize Video.js Player with standard controls
   const player = videojs('videoPlayer', {
     fluid: false,
     autoplay: true,
     controls: true,
     preload: 'auto',
-    playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
-    controlBar: {
-      children: [
-        'playToggle',
-        'volumePanel',
-        'currentTimeDisplay',
-        'timeDivider',
-        'durationDisplay',
-        'progressControl',
-        'playbackRateMenuButton',
-        'pictureInPictureToggle',
-        'fullscreenToggle'
-      ]
-    }
+    playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2]
   });
 
   const isHls =
