@@ -5,7 +5,19 @@
  */
 
 (function () {
+  // Never run or inspect inside Cloudflare challenge frames, about:blank, or extension frames
+  if (
+    typeof location !== 'undefined' &&
+    (location.hostname.includes('challenges.cloudflare.com') ||
+      location.pathname.includes('/cdn-cgi/challenge-platform/') ||
+      location.protocol === 'about:' ||
+      location.protocol === 'chrome-extension:')
+  ) {
+    return;
+  }
+
   /**
+
    * Recursively finds all HTML5 video elements in a root or document,
    * including those nested within Shadow DOM roots.
    * @param {any} [root]

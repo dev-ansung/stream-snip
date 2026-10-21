@@ -206,3 +206,48 @@ test('StreamFetcher.probeAndFilterStreams hides unloadable streams and enriches 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('StreamFetcher.probeStream rejects Cloudflare challenge URLs without fetching', async () => {
+  StreamFetcher.clearCache();
+  let fetchCalled = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    return { ok: true, text: async () => '' };
+  };
+
+  try {
+    const res = await StreamFetcher.probeStream({
+      url: 'https://example.com/cdn-cgi/challenge-platform/h/b/scripts/p.js',
+      kind: 'direct'
+    });
+    assert.equal(res.ok, false);
+    assert.equal(fetchCalled, false, 'Must not issue network fetch for challenge URL');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('StreamFetcher.probeStream respects already-probed stream objects without fetching', async () => {
+  StreamFetcher.clearCache();
+  let fetchCalled = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    return { ok: true, text: async () => '' };
+  };
+
+  try {
+    const res = await StreamFetcher.probeStream({
+      url: 'https://example.com/already-probed.m3u8',
+      probed: true,
+      duration: 120,
+      formattedDuration: '02:00'
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.duration, 120);
+    assert.equal(fetchCalled, false, 'Must not issue network fetch for already probed stream');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

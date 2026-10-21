@@ -120,10 +120,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.type === 'APPLY_DNR_RULES') {
     // Modify headers for extension requests via Declarative Net Request
-    const { headers } = request;
+    const { headers, targetDomain, clearOnly } = request;
     const rules = { removeRuleIds: [1] };
 
-    if (headers && Object.keys(headers).length > 0) {
+    if (!clearOnly && headers && Object.keys(headers).length > 0) {
       const modifyHeaders = [];
       for (const [k, v] of Object.entries(headers)) {
         if (['referer', 'origin', 'user-agent'].includes(k.toLowerCase())) {
@@ -141,6 +141,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               requestHeaders: modifyHeaders
             },
             condition: {
+              ...(targetDomain ? { requestDomains: [targetDomain] } : {}),
               ...(chrome.runtime?.id ? { initiatorDomains: [chrome.runtime.id] } : {}),
               resourceTypes: ['xmlhttprequest', 'media', 'image']
             }

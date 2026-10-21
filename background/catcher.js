@@ -318,6 +318,13 @@ const Catcher = (() => {
   // hasn't arrived, so there's no Content-Type to check.
   function cacheRequestHeaders(details) {
     if (details.tabId < 0) return;
+    if (
+      details.url &&
+      (details.url.includes('/cdn-cgi/challenge-platform/') ||
+        details.url.includes('challenges.cloudflare.com'))
+    ) {
+      return;
+    }
     pendingRequestHeaders.set(details.requestId, headersToObject(details.requestHeaders));
   }
 
@@ -340,6 +347,12 @@ const Catcher = (() => {
     pendingRequestHeaders.delete(requestId);
 
     if (tabId < 0) return;
+    if (
+      url &&
+      (url.includes('/cdn-cgi/challenge-platform/') || url.includes('challenges.cloudflare.com'))
+    ) {
+      return;
+    }
 
     const contentType = getHeaderValue(responseHeaders, 'content-type');
     const contentDisposition = getHeaderValue(responseHeaders, 'content-disposition');
@@ -398,6 +411,12 @@ const Catcher = (() => {
     // Zero auto-wipe: streams are preserved across navigations
   }
 
+  /** @type {chrome.webRequest.RequestFilter} */
+  const MEDIA_WEB_REQUEST_FILTER = {
+    urls: ['<all_urls>'],
+    types: ['media', 'xmlhttprequest', 'other']
+  };
+
   function armCapture() {
     if (isArmed) return;
     isArmed = true;
@@ -406,15 +425,15 @@ const Catcher = (() => {
     chrome.webNavigation.onBeforeNavigate.addListener(handleBeforeNavigate);
     chrome.webRequest.onSendHeaders.addListener(
       cacheRequestHeaders,
-      { urls: ['<all_urls>'] },
+      MEDIA_WEB_REQUEST_FILTER,
       SEND_HEADERS_EXTRA_INFO_SPEC
     );
     chrome.webRequest.onResponseStarted.addListener(
       handleResponseStarted,
-      { urls: ['<all_urls>'] },
+      MEDIA_WEB_REQUEST_FILTER,
       RESPONSE_HEADERS_EXTRA_INFO_SPEC
     );
-    chrome.webRequest.onErrorOccurred.addListener(handleRequestError, { urls: ['<all_urls>'] });
+    chrome.webRequest.onErrorOccurred.addListener(handleRequestError, MEDIA_WEB_REQUEST_FILTER);
   }
 
   function disarmCapture() {
@@ -538,8 +557,11 @@ const Catcher = (() => {
 
   async function syncFilteredStreams(tabId, streams) {
     if (!tabId || !Array.isArray(streams)) return;
-    tabStreams.set(tabId, streams);
-    await persistState();
+    const existing = tabStreams.get(tabId) || [];
+    const isSame =
+      existing.length === streams.length &&
+      existing.every((s, i) => s.url === streams[i]?.url && s.probed === streams[i]?.probed);
+
     const count = streams.length;
     try {
       chrome.action.setBadgeText({ tabId, text: count > 0 ? String(count) : '' });
@@ -547,6 +569,11 @@ const Catcher = (() => {
         chrome.action.setBadgeBackgroundColor({ tabId, color: '#3B82F6' });
       }
     } catch {}
+
+    if (isSame) return;
+
+    tabStreams.set(tabId, streams);
+    await persistState();
   }
 
   function init() {

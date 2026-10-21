@@ -324,6 +324,7 @@ const StreamList = (() => {
   }
 
   let _probeGeneration = 0;
+  let _lastSyncedSignature = '';
 
   function syncBadgeWithCount(tabId, count) {
     if (!tabId || typeof chrome === 'undefined') return;
@@ -336,6 +337,11 @@ const StreamList = (() => {
         }
       } catch {}
     }
+
+    const sig = `${tabId}:${count}:${currentStreams.map((s) => s.url).join(',')}`;
+    if (sig === _lastSyncedSignature) return;
+    _lastSyncedSignature = sig;
+
     if (chrome.runtime?.sendMessage) {
       chrome.runtime
         .sendMessage({
@@ -364,6 +370,12 @@ const StreamList = (() => {
     updateBadge();
     renderVideoCards();
     syncBadgeWithCount(currentTabId, currentStreams.length);
+
+    // Skip network probing if every stream in the list is already probed
+    const needsProbing = rawList.some((s) => !s.probed);
+    if (!needsProbing && rawList.length > 0) {
+      return;
+    }
 
     // Asynchronous probe path: enrich with duration/resolution and prune unloadable streams
     const generation = ++_probeGeneration;

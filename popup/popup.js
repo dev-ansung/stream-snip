@@ -175,18 +175,6 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated) {
   });
 }
 
-// React dynamically to storage changes if Catcher persisted new streams
-if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === 'local' && changes.tabStreams && currentTabId) {
-      const newStreams = changes.tabStreams.newValue;
-      if (newStreams && newStreams[currentTabId]) {
-        scheduleRefresh(currentTabId, 50);
-      }
-    }
-  });
-}
-
 // Bootstrap on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', async () => {
   // Connect side panel port to arm passive capture in service worker

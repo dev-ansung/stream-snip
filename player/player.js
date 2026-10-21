@@ -177,12 +177,18 @@ function getMsgType(key) {
       effectivePageUrl
     );
 
+    let targetDomain = '';
+    try {
+      if (streamUrl) targetDomain = new URL(streamUrl).hostname;
+    } catch {}
+
     if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
       const msgType = getMsgType('APPLY_DNR_RULES');
       await new Promise((resolve) => {
         try {
-          chrome.runtime.sendMessage({ type: msgType, headers: effectiveHeaders }, () =>
-            resolve(null)
+          chrome.runtime.sendMessage(
+            { type: msgType, headers: effectiveHeaders, targetDomain },
+            () => resolve(null)
           );
         } catch {
           resolve(null);
@@ -636,6 +642,16 @@ function getMsgType(key) {
         e.preventDefault();
         if (btnSetEnd) btnSetEnd.click();
         break;
+    }
+  });
+
+  // Clean up domain-scoped DNR rules when the player tab is closed
+  window.addEventListener('beforeunload', () => {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      try {
+        const msgType = getMsgType('APPLY_DNR_RULES');
+        chrome.runtime.sendMessage({ type: msgType, clearOnly: true });
+      } catch {}
     }
   });
 })();

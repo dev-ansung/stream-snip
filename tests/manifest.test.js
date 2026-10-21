@@ -220,3 +220,40 @@ test('popup.html loads lib/stream-sniffer.js so popup.js can classify manual URL
   const html = fs.readFileSync(path.join(rootDir, 'popup', 'popup.html'), 'utf8');
   assert.ok(html.includes('stream-sniffer.js'), 'popup.html must include the sniffer script');
 });
+
+test('manifest and content script exclude Cloudflare challenge endpoints and sandbox iframes', () => {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const cs = manifest.content_scripts[0];
+  assert.equal(cs.match_about_blank, undefined, 'Must not inject into about:blank');
+  assert.ok(Array.isArray(cs.exclude_matches), 'Must have exclude_matches');
+  assert.ok(
+    cs.exclude_matches.some((m) => m.includes('challenges.cloudflare.com')),
+    'Must exclude challenges.cloudflare.com'
+  );
+
+  const contentSource = fs.readFileSync(path.join(rootDir, 'content', 'content.js'), 'utf8');
+  assert.ok(
+    contentSource.includes('challenges.cloudflare.com'),
+    'content.js must guard against Cloudflare challenge platform'
+  );
+});
+
+test('catcher.js scopes webRequest to media types and filters challenge URLs', () => {
+  const catcherSource = fs.readFileSync(path.join(rootDir, 'background', 'catcher.js'), 'utf8');
+  assert.ok(
+    catcherSource.includes("types: ['media', 'xmlhttprequest', 'other']"),
+    'Must restrict webRequest types to media and XHR'
+  );
+  assert.ok(
+    catcherSource.includes('challenges.cloudflare.com'),
+    'Must bypass challenge endpoints in webRequest'
+  );
+});
+
+test('service_worker.js scopes declarativeNetRequest rules to requestDomains', () => {
+  const swSource = fs.readFileSync(path.join(rootDir, 'background', 'service_worker.js'), 'utf8');
+  assert.ok(
+    swSource.includes('requestDomains: [targetDomain]'),
+    'DNR rules must scope to targetDomain'
+  );
+});
