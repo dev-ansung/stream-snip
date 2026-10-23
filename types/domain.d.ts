@@ -97,6 +97,11 @@ export interface StreamSnifferModule {
     stream?: { headers?: Record<string, string>; pageUrl?: string } | null,
     fallbackPageUrl?: string
   ): Record<string, string>;
+  extractDomain?(urlStr?: string, fallbackUrlStr?: string): string;
+  guessDirectFileExtension?(url?: string, contentType?: string): string;
+  escapeHtml?(str?: string): string;
+  isMediaFragment?(url?: string): boolean;
+  normalizeHlsUrl?(url?: string): string;
 }
 
 export interface SnifferMediaItem {
@@ -110,6 +115,7 @@ export interface SnifferMediaItem {
   pageUrl?: string;
   cleanTitle?: string;
   manual?: boolean;
+  sniffed?: boolean;
 }
 
 export interface DownloadTask {
@@ -170,6 +176,7 @@ export interface CatcherModule {
   getStreamsForTab(tabId: number): Promise<any>;
   registerManualStream(tabId: number, url: string): Promise<any>;
   handlePageTitleChanged(tabId: number, title: string, url?: string, cleanTitle?: string): void;
+  syncFilteredStreams?(tabId: number, streams: any[]): Promise<void>;
   recordMediaSize?(url: string, size: number): void;
   getLogs?(): any[];
   clearLogs?(): void;
@@ -214,6 +221,10 @@ declare global {
   var UiFeedback: any;
   var PlayerController: any;
   var StateManager: any;
+  var StreamList: any;
+  var StreamFetcher: any;
+  var DownloadsManager: any;
+  var SettingsController: any;
   var Hls: any;
   var lamejs: any;
 

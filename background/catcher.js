@@ -49,13 +49,6 @@ const Catcher = (() => {
   let lastActiveMediaTabId = null;
   let isArmed = false;
 
-  function getPopupStateKeySafe(tabId) {
-    if (typeof StegoConstants !== 'undefined' && StegoConstants.getPopupStateKey) {
-      return StegoConstants.getPopupStateKey(tabId);
-    }
-    return `stego_popup_state_${tabId}`;
-  }
-
   function getMsgTypeSafe(key) {
     return (typeof StegoConstants !== 'undefined' && StegoConstants.MSG_TYPES?.[key]) || key;
   }
@@ -177,9 +170,8 @@ const Catcher = (() => {
     }
   }
 
-  // Wipes everything tracked for a tab: captured streams, metadata, badge,
-  // and its persisted popup state. Shared by navigation cleanup, tab close,
-  // manual clear, and the stale-data check below.
+  // Wipes everything tracked for a tab: captured streams, metadata, and badge.
+  // Shared by tab close, manual clear, and the stale-data check below.
   async function wipeTab(tabId) {
     const existing = tabStreams.get(tabId) || [];
     for (const s of existing) streamMetadata.delete(s.url);
@@ -187,9 +179,6 @@ const Catcher = (() => {
     tabMetadata.delete(tabId);
     try {
       chrome.action.setBadgeText({ tabId, text: '' });
-    } catch {}
-    try {
-      await chrome.storage.local.remove([getPopupStateKeySafe(tabId)]);
     } catch {}
     await persistState();
   }
@@ -224,6 +213,11 @@ const Catcher = (() => {
     const cleanTitle = getCleanTitleSafe(pageTitle);
     const streams = tabStreams.get(tabId) || [];
 
+    const normalizedUrl =
+      kind === 'hls' && typeof StreamSniffer !== 'undefined' && StreamSniffer.normalizeHlsUrl
+        ? StreamSniffer.normalizeHlsUrl(url)
+        : url;
+
     const formattedSize =
       size && size > 0
         ? typeof StegoTime !== 'undefined' && StegoTime.formatBytes
@@ -238,23 +232,35 @@ const Catcher = (() => {
     // popup.js) once it actually loads the stream, so an undefined kind
     // here is not a bug.
     const streamItem = {
-      url,
+      url: normalizedUrl,
       headers,
       timestamp: Date.now(),
       pageTitle,
       pageUrl,
       cleanTitle,
+      sniffed: !manual,
       ...(size ? { size } : {}),
       ...(formattedSize ? { formattedSize } : {}),
       ...(manual ? { manual: true } : {}),
       ...(kind ? { kind } : {})
     };
-    streamMetadata.set(url, streamItem);
+    streamMetadata.set(normalizedUrl, streamItem);
 
-    const existsIndex = streams.findIndex((s) => s.url === url);
+    const existsIndex = streams.findIndex((s) => s.url === normalizedUrl);
     if (existsIndex >= 0) {
       streams[existsIndex] = { ...streams[existsIndex], ...streamItem };
       await persistState();
+      try {
+        chrome.runtime
+          .sendMessage({
+            type: getMsgTypeSafe('STREAM_DETECTED'),
+            tabId,
+            streamUrl: normalizedUrl,
+            pageTitle,
+            cleanTitle
+          })
+          .catch(() => {});
+      } catch {}
     } else {
       streams.unshift(streamItem);
       // Cap at 50 streams per tab across pages
@@ -274,7 +280,7 @@ const Catcher = (() => {
           .sendMessage({
             type: getMsgTypeSafe('STREAM_DETECTED'),
             tabId,
-            streamUrl: url,
+            streamUrl: normalizedUrl,
             pageTitle,
             cleanTitle
           })
@@ -313,6 +319,13 @@ const Catcher = (() => {
   // hasn't arrived, so there's no Content-Type to check.
   function cacheRequestHeaders(details) {
     if (details.tabId < 0) return;
+    if (
+      details.url &&
+      (details.url.includes('/cdn-cgi/challenge-platform/') ||
+        details.url.includes('challenges.cloudflare.com'))
+    ) {
+      return;
+    }
     pendingRequestHeaders.set(details.requestId, headersToObject(details.requestHeaders));
   }
 
@@ -335,6 +348,12 @@ const Catcher = (() => {
     pendingRequestHeaders.delete(requestId);
 
     if (tabId < 0) return;
+    if (
+      url &&
+      (url.includes('/cdn-cgi/challenge-platform/') || url.includes('challenges.cloudflare.com'))
+    ) {
+      return;
+    }
 
     const contentType = getHeaderValue(responseHeaders, 'content-type');
     const contentDisposition = getHeaderValue(responseHeaders, 'content-disposition');
@@ -357,6 +376,12 @@ const Catcher = (() => {
     // Filter out tiny direct media (< 50KB) to prevent junk/tracker/audio pings
     if (kind === 'direct' && typeof size === 'number' && !isNaN(size) && size < 51200) {
       addLog('SKIP', `Skipped small direct file (<50KB): ${url} (${size} B)`);
+      return;
+    }
+
+    // Filter out media fragments (LL-HLS or CMAF sub-second chunks)
+    if (kind === 'direct' && StreamSniffer.isMediaFragment && StreamSniffer.isMediaFragment(url)) {
+      addLog('SKIP', `Skipped media fragment: ${url}`);
       return;
     }
 
@@ -387,6 +412,12 @@ const Catcher = (() => {
     // Zero auto-wipe: streams are preserved across navigations
   }
 
+  /** @type {chrome.webRequest.RequestFilter} */
+  const MEDIA_WEB_REQUEST_FILTER = {
+    urls: ['<all_urls>'],
+    types: ['media', 'xmlhttprequest', 'other']
+  };
+
   function armCapture() {
     if (isArmed) return;
     isArmed = true;
@@ -395,15 +426,15 @@ const Catcher = (() => {
     chrome.webNavigation.onBeforeNavigate.addListener(handleBeforeNavigate);
     chrome.webRequest.onSendHeaders.addListener(
       cacheRequestHeaders,
-      { urls: ['<all_urls>'] },
+      MEDIA_WEB_REQUEST_FILTER,
       SEND_HEADERS_EXTRA_INFO_SPEC
     );
     chrome.webRequest.onResponseStarted.addListener(
       handleResponseStarted,
-      { urls: ['<all_urls>'] },
+      MEDIA_WEB_REQUEST_FILTER,
       RESPONSE_HEADERS_EXTRA_INFO_SPEC
     );
-    chrome.webRequest.onErrorOccurred.addListener(handleRequestError, { urls: ['<all_urls>'] });
+    chrome.webRequest.onErrorOccurred.addListener(handleRequestError, MEDIA_WEB_REQUEST_FILTER);
   }
 
   function disarmCapture() {
@@ -525,6 +556,27 @@ const Catcher = (() => {
     }
   }
 
+  async function syncFilteredStreams(tabId, streams) {
+    if (!tabId || !Array.isArray(streams)) return;
+    const existing = tabStreams.get(tabId) || [];
+    const isSame =
+      existing.length === streams.length &&
+      existing.every((s, i) => s.url === streams[i]?.url && s.probed === streams[i]?.probed);
+
+    const count = streams.length;
+    try {
+      chrome.action.setBadgeText({ tabId, text: count > 0 ? String(count) : '' });
+      if (count > 0) {
+        chrome.action.setBadgeBackgroundColor({ tabId, color: '#3B82F6' });
+      }
+    } catch {}
+
+    if (isSame) return;
+
+    tabStreams.set(tabId, streams);
+    await persistState();
+  }
+
   function init() {
     loadPersistedState();
     armCapture();
@@ -539,6 +591,7 @@ const Catcher = (() => {
     registerManualStream,
     handlePageTitleChanged,
     clearTab,
+    syncFilteredStreams,
     getLogs,
     clearLogs,
     addLog

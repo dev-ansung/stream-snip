@@ -5,7 +5,19 @@
  */
 
 (function () {
+  // Never run or inspect inside Cloudflare challenge frames, about:blank, or extension frames
+  if (
+    typeof location !== 'undefined' &&
+    (location.hostname.includes('challenges.cloudflare.com') ||
+      location.pathname.includes('/cdn-cgi/challenge-platform/') ||
+      location.protocol === 'about:' ||
+      location.protocol === 'chrome-extension:')
+  ) {
+    return;
+  }
+
   /**
+
    * Recursively finds all HTML5 video elements in a root or document,
    * including those nested within Shadow DOM roots.
    * @param {any} [root]
@@ -29,40 +41,6 @@
       // Ignored if querying restricted elements
     }
     return videos;
-  }
-
-  /**
-   * Finds the most relevant video element on the current frame or page.
-   * If expectedDuration is provided, prioritizes the video matching that duration.
-   */
-  function findPrimaryVideo(expectedDuration = 0) {
-    const videos = findAllVideos(document);
-    if (videos.length === 0) return null;
-    if (videos.length === 1) return videos[0];
-
-    // Priority 1: Match by duration of the preview video (within 2s tolerance)
-    if (expectedDuration > 0) {
-      const match = videos.find(
-        (v) => v.duration && Math.abs(v.duration - expectedDuration) <= 2.0
-      );
-      if (match) return match;
-    }
-
-    // Priority 2: Currently playing video
-    const playing = videos.find((v) => !v.paused && v.currentTime > 0);
-    if (playing) return playing;
-
-    // Priority 3: Largest visible video by area
-    let largest = null;
-    let maxArea = 0;
-    for (const v of videos) {
-      const area = (v.videoWidth || v.clientWidth || 0) * (v.videoHeight || v.clientHeight || 0);
-      if (area > maxArea) {
-        maxArea = area;
-        largest = v;
-      }
-    }
-    return largest || videos[0];
   }
 
   let titleObserver = null;
@@ -220,7 +198,6 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       findAllVideos,
-      findPrimaryVideo,
       startTitleObserver,
       stopTitleObserver,
       reportTitleChange,

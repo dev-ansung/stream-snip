@@ -12,7 +12,17 @@
       <header class="player-header">
         <div class="header-left">
           <span class="app-logo">🎬</span>
-          <span id="playerTitle" class="stream-title">Loading Stream...</span>
+          <span id="playerTitle" class="stream-title" title="Click to rename filename"
+            >Loading Stream...</span
+          >
+          <input
+            type="text"
+            id="playerTitleInput"
+            class="stream-title-input"
+            style="display: none"
+            placeholder="Enter media filename"
+            spellcheck="false"
+          />
           <span id="playerDomain" class="stream-domain" style="display: none"></span>
         </div>
         <div class="header-right">

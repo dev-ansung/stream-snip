@@ -6,8 +6,11 @@ const {
   formatBitrate,
   formatBytes,
   formatTimestampForFilename,
+  formatStartTimeForFilename,
   extractBaseName,
   buildClipFilename,
+  buildTrimmedFilename,
+  buildPartialFilename,
   cleanTitleForFilename
 } = require('../lib/time.js');
 
@@ -112,4 +115,34 @@ test('buildClipFilename normalizes hours into dash-separated title-start-end', (
     buildClipFilename('CLIP-8842-新製品発表会', '1:03:00', '1:18:00'),
     'CLIP-8842-新製品発表会-01_03_00-01_18_00'
   );
+});
+
+test('formatStartTimeForFilename formats timestamps as HH_MM_SS with 2-digit padding', () => {
+  assert.equal(formatStartTimeForFilename('00:04:23'), '00_04_23');
+  assert.equal(formatStartTimeForFilename('4:23'), '00_04_23');
+  assert.equal(formatStartTimeForFilename(263), '00_04_23');
+  assert.equal(formatStartTimeForFilename('01:15:30'), '01_15_30');
+  assert.equal(formatStartTimeForFilename('00:00'), '00_00_00');
+  assert.equal(formatStartTimeForFilename(0), '00_00_00');
+});
+
+test('buildTrimmedFilename formats trimmed downloads with start time and full downloads cleanly', () => {
+  assert.equal(buildTrimmedFilename('video1', '00:04:23', 'mp4', true), 'video1.00_04_23.mp4');
+  assert.equal(buildTrimmedFilename('video1', 263, 'mp4', true), 'video1.00_04_23.mp4');
+  assert.equal(buildTrimmedFilename('video1.mp4', '00:04:23', 'mp4', true), 'video1.00_04_23.mp4');
+  assert.equal(
+    buildTrimmedFilename('video1.00_04_23', '00:04:23', 'mp4', true),
+    'video1.00_04_23.mp4'
+  );
+  assert.equal(buildTrimmedFilename('video1', '00:04:23', 'mp4', false), 'video1.mp4');
+  assert.equal(buildTrimmedFilename('video1', 0, 'mp3', false), 'video1.mp3');
+  assert.equal(buildTrimmedFilename('video1', '01:03:15', 'ts', true), 'video1.01_03_15.ts');
+});
+
+test('buildPartialFilename formats interrupted downloads with .partial suffix', () => {
+  assert.equal(buildPartialFilename('video1.mp4'), 'video1.partial.mp4');
+  assert.equal(buildPartialFilename('video1.00_04_23.mp4'), 'video1.00_04_23.partial.mp4');
+  assert.equal(buildPartialFilename('video1.partial.mp4'), 'video1.partial.mp4');
+  assert.equal(buildPartialFilename('video1', 'mp4'), 'video1.partial.mp4');
+  assert.equal(buildPartialFilename('video1.ts', 'mp4'), 'video1.partial.ts');
 });

@@ -7,13 +7,10 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <!-- Top Navigation Bar (4 Tabs) -->
+    <!-- Top Navigation Bar (3 Tabs) -->
     <nav class="app-nav">
       <button type="button" class="nav-tab active" data-tab="videos" id="tabBtnVideos">
         <span class="nav-icon">🎥</span> Videos <span id="streamCount" class="badge">0</span>
-      </button>
-      <button type="button" class="nav-tab" data-tab="preview" id="tabBtnPreview">
-        <span class="nav-icon">✂️</span> Preview
       </button>
       <button type="button" class="nav-tab" data-tab="downloads" id="tabBtnDownloads">
         <span class="nav-icon">⬇️</span> Downloads
@@ -64,167 +61,7 @@
       </div>
     </section>
 
-    <!-- Tab 2: Preview (Player & Sub-second Clipper) -->
-    <section id="panelPreview" class="tab-panel">
-      <div class="preview-header">
-        <button type="button" id="btnBackToVideos" class="text-btn">← Back to Videos</button>
-        <span id="currentLoadedStreamTitle" class="loaded-stream-title">No stream loaded</span>
-      </div>
-
-      <div class="stream-select-wrapper" style="display: none">
-        <label for="streamSelect">Select Stream:</label>
-        <select id="streamSelect">
-          <option value="">Searching for active streams...</option>
-        </select>
-      </div>
-
-      <div class="player-container card">
-        <video id="previewPlayer" controls playsinline></video>
-        <div class="stream-status-bar">
-          <span id="videoInfo" class="meta-info">Duration: --:--</span>
-          <div class="status-bar-right">
-            <span id="activeQualityBadge" class="badge-subtle">Auto</span>
-            <button
-              type="button"
-              id="btnPopoutPlayer"
-              class="popout-player-btn"
-              title="Open video in Video.js fullscreen tab"
-            >
-              ⛶ Fullscreen
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Media Stream Info -->
-      <div class="card media-info-card">
-        <div class="media-info-header">
-          <span class="media-info-title">📊 Stream Details</span>
-          <span id="mediaLiveIndicator" class="badge-live">Live</span>
-        </div>
-        <div class="media-info-grid">
-          <div class="media-info-item">
-            <span class="media-info-label">Resolution</span>
-            <span id="mediaResolution" class="media-info-value">Detecting...</span>
-          </div>
-          <div class="media-info-item">
-            <span class="media-info-label">Bitrate</span>
-            <span id="mediaBitrate" class="media-info-value">--</span>
-          </div>
-          <div class="media-info-item">
-            <span class="media-info-label">Codecs</span>
-            <span id="mediaCodecs" class="media-info-value">--</span>
-          </div>
-          <div class="media-info-item">
-            <span class="media-info-label">Duration</span>
-            <span id="mediaDuration" class="media-info-value">--:--</span>
-          </div>
-          <div class="media-info-item">
-            <span class="media-info-label">Segments</span>
-            <span id="mediaSegments" class="media-info-value">--</span>
-          </div>
-          <div class="media-info-item">
-            <span class="media-info-label">Est. File Size</span>
-            <span id="mediaEstSize" class="media-info-value">--</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Clipper Controls Card -->
-      <div class="card clipper-controls-card">
-        <!-- Quality / Resolution Selector -->
-        <div class="field-group" id="qualitySection" style="display: none">
-          <label for="qualitySelect">Quality / Resolution:</label>
-          <select id="qualitySelect">
-            <option value="">Loading qualities...</option>
-          </select>
-        </div>
-
-        <!-- Range Selection Controls -->
-        <div class="range-section">
-          <div class="field-row">
-            <div class="field-group">
-              <label for="startTime">Start Time:</label>
-              <div class="input-with-button">
-                <input type="text" id="startTime" value="00:00" />
-                <button type="button" id="btnSetStart" title="Set to current video playback time">
-                  ⏱️ Current
-                </button>
-              </div>
-            </div>
-
-            <div class="field-group">
-              <label for="endTime">End Time:</label>
-              <div class="input-with-button">
-                <input type="text" id="endTime" value="00:00" />
-                <button type="button" id="btnSetEnd" title="Set to current video playback time">
-                  ⏱️ Current
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="toggle-row">
-            <label> <input type="checkbox" id="fullVideoToggle" /> Download Full Video </label>
-            <span id="clipDurationText" class="meta-info">Clip: 00:00</span>
-          </div>
-
-          <div class="quick-cut-row">
-            <button
-              type="button"
-              id="btnQuickCut"
-              class="secondary-btn"
-              title="Cut N minutes centered on the current playback time"
-            >
-              ⚡ Quick Cut
-            </button>
-            <div class="quick-cut-config">
-              <input
-                type="number"
-                id="quickCutMinutes"
-                min="1"
-                max="180"
-                step="1"
-                value="10"
-                title="Quick Cut window size in minutes"
-              />
-              <span class="meta-info">min</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Output & Download -->
-        <div class="action-section">
-          <div class="field-row">
-            <div class="field-group" style="flex: 2">
-              <label for="filenameInput">Filename:</label>
-              <input type="text" id="filenameInput" placeholder="video_clip" />
-            </div>
-            <div class="field-group" style="flex: 1">
-              <label for="formatSelect">Format:</label>
-              <select id="formatSelect">
-                <option value="mp4" selected>MP4</option>
-                <option value="ts">TS</option>
-                <option value="mp3">MP3 (Audio Only)</option>
-              </select>
-            </div>
-          </div>
-
-          <button type="button" id="btnDownload" class="primary-btn">⬇️ Download MP4 Clip</button>
-          <button type="button" id="btnCancel" class="danger-btn" style="display: none">
-            Cancel
-          </button>
-
-          <!-- Progress Tracking -->
-          <div id="progressContainer" style="display: none">
-            <progress id="downloadProgress" value="0" max="100"></progress>
-            <div id="progressStatus" class="meta-info">Preparing download...</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Tab 3: Downloads (In-place download management & history) -->
+    <!-- Tab 2: Downloads (In-place download management & history) -->
     <section id="panelDownloads" class="tab-panel">
       <div id="downloadManagerCard" class="card download-manager-card">
         <div class="history-header">
@@ -243,7 +80,7 @@
       </div>
     </section>
 
-    <!-- Tab 4: Settings -->
+    <!-- Tab 3: Settings -->
     <section id="panelSettings" class="tab-panel">
       <div class="card settings-card">
         <h3 class="settings-title">🔍 Sniffer Settings</h3>
@@ -374,20 +211,14 @@
     <!-- Libraries & Modules -->
     <script src="../lib/constants.js"></script>
     <script src="../lib/bytes.js"></script>
-    <script src="../lib/mux.min.js"></script>
-    <script src="../lib/hls.min.js"></script>
-    <script src="../lib/lame.min.js"></script>
     <script src="../lib/time.js"></script>
-    <script src="../lib/stego.js"></script>
-    <script src="../lib/stego-loader.js"></script>
-    <script src="../lib/transmuxer.js"></script>
-    <script src="../lib/mp3-encoder.js"></script>
     <script src="../lib/parser.js"></script>
     <script src="../lib/stream-sniffer.js"></script>
-    <script src="../lib/downloader.js"></script>
+    <script src="../lib/stream-fetcher.js"></script>
     <script src="ui-feedback.js"></script>
-    <script src="player-controller.js"></script>
-    <script src="state-manager.js"></script>
+    <script src="stream-list.js"></script>
+    <script src="downloads-manager.js"></script>
+    <script src="settings.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

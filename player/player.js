@@ -16,6 +16,10 @@ function getMsgType(key) {
 
   // UI Elements
   const titleEl = document.getElementById('playerTitle');
+  const titleInputEl = /** @type {HTMLInputElement | null} */ (
+    document.getElementById('playerTitleInput')
+  );
+  const headerLeftEl = document.querySelector('.header-left');
   const domainEl = document.getElementById('playerDomain');
   const btnToggleFs = document.getElementById('btnToggleFs');
 
@@ -70,6 +74,78 @@ function getMsgType(key) {
     clipFilenameInput.value = clean || 'video_clip';
   }
 
+  // Header Title inline editing
+  function enterTitleEdit() {
+    if (!titleInputEl || !titleEl) return;
+    titleInputEl.value = clipFilenameInput?.value || titleEl.textContent || '';
+    titleEl.style.display = 'none';
+    titleInputEl.style.display = 'inline-block';
+    titleInputEl.focus();
+    titleInputEl.select();
+  }
+
+  function saveTitleEdit() {
+    if (!titleInputEl || !titleEl) return;
+    const rawVal = titleInputEl.value.trim();
+    if (rawVal) {
+      const cleanVal =
+        typeof StegoTime !== 'undefined' && StegoTime.cleanTitleForFilename
+          ? StegoTime.cleanTitleForFilename(rawVal)
+          : rawVal.replace(/[^\w.-]/g, '_');
+      const finalTitle = cleanVal || rawVal;
+      titleEl.textContent = finalTitle;
+      document.title = `${finalTitle} - StegoClip Player`;
+      if (clipFilenameInput) {
+        clipFilenameInput.value = finalTitle;
+      }
+    }
+    titleInputEl.style.display = 'none';
+    titleEl.style.display = '';
+  }
+
+  function cancelTitleEdit() {
+    if (!titleInputEl || !titleEl) return;
+    titleInputEl.style.display = 'none';
+    titleEl.style.display = '';
+  }
+
+  if (titleEl) {
+    titleEl.addEventListener('click', enterTitleEdit);
+  }
+
+  if (headerLeftEl) {
+    headerLeftEl.addEventListener('click', (e) => {
+      if (e.target === domainEl || e.target === titleInputEl) return;
+      enterTitleEdit();
+    });
+  }
+
+  if (titleInputEl) {
+    titleInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveTitleEdit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelTitleEdit();
+      }
+    });
+
+    titleInputEl.addEventListener('blur', () => {
+      saveTitleEdit();
+    });
+  }
+
+  if (clipFilenameInput) {
+    clipFilenameInput.addEventListener('input', () => {
+      const val = clipFilenameInput.value.trim();
+      if (titleEl && val) {
+        titleEl.textContent = val;
+        document.title = `${val} - StegoClip Player`;
+      }
+    });
+  }
+
   const effectivePageUrl = pageUrl || document.referrer || '';
   if (domainEl && effectivePageUrl) {
     try {
@@ -101,12 +177,18 @@ function getMsgType(key) {
       effectivePageUrl
     );
 
+    let targetDomain = '';
+    try {
+      if (streamUrl) targetDomain = new URL(streamUrl).hostname;
+    } catch {}
+
     if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
       const msgType = getMsgType('APPLY_DNR_RULES');
       await new Promise((resolve) => {
         try {
-          chrome.runtime.sendMessage({ type: msgType, headers: effectiveHeaders }, () =>
-            resolve(null)
+          chrome.runtime.sendMessage(
+            { type: msgType, headers: effectiveHeaders, targetDomain },
+            () => resolve(null)
           );
         } catch {
           resolve(null);
@@ -120,26 +202,13 @@ function getMsgType(key) {
     return;
   }
 
-  // Initialize Video.js Player
+  // Initialize Video.js Player with standard controls
   const player = videojs('videoPlayer', {
     fluid: false,
     autoplay: true,
     controls: true,
     preload: 'auto',
-    playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
-    controlBar: {
-      children: [
-        'playToggle',
-        'volumePanel',
-        'currentTimeDisplay',
-        'timeDivider',
-        'durationDisplay',
-        'progressControl',
-        'playbackRateMenuButton',
-        'pictureInPictureToggle',
-        'fullscreenToggle'
-      ]
-    }
+    playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2]
   });
 
   const isHls =
@@ -377,7 +446,13 @@ function getMsgType(key) {
       const fmt = formatSelect ? formatSelect.value : 'mp4';
       const baseName =
         (clipFilenameInput?.value || '').trim().replace(/\.(mp4|ts|mp3)$/i, '') || 'video_clip';
-      const filename = `${baseName}.${fmt}`;
+      const isTrimmed = !fullVideoToggle?.checked;
+      const filename =
+        typeof StegoTime !== 'undefined' && StegoTime.buildTrimmedFilename
+          ? StegoTime.buildTrimmedFilename(baseName, startSec, fmt, isTrimmed)
+          : isTrimmed
+            ? `${baseName}.${typeof StegoTime !== 'undefined' ? StegoTime.formatStartTimeForFilename(startSec) : '00_00_00'}.${fmt}`
+            : `${baseName}.${fmt}`;
 
       const taskMeta = {
         id: activeTaskId,
@@ -567,6 +642,16 @@ function getMsgType(key) {
         e.preventDefault();
         if (btnSetEnd) btnSetEnd.click();
         break;
+    }
+  });
+
+  // Clean up domain-scoped DNR rules when the player tab is closed
+  window.addEventListener('beforeunload', () => {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      try {
+        const msgType = getMsgType('APPLY_DNR_RULES');
+        chrome.runtime.sendMessage({ type: msgType, clearOnly: true });
+      } catch {}
     }
   });
 })();

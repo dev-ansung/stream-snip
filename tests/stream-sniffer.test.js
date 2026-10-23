@@ -304,3 +304,36 @@ test('resolveStreamHeaders populates Referer and Origin from stream pageUrl or f
   assert.equal(invalidUrl.Referer, 'not-a-valid-url');
   assert.equal(invalidUrl.Origin, undefined);
 });
+
+test('isMediaFragment identifies HLS and LL-HLS sub-segment chunk patterns', () => {
+  assert.ok(
+    StreamSniffer.isMediaFragment(
+      'https://media-hls.doppiocdn.net/b-hls-24/197467228/197467228_1080p60_av1_142_Yi6db2ADsm8dz4cf_1792591776_part1.mp4'
+    )
+  );
+  assert.ok(
+    StreamSniffer.isMediaFragment(
+      'https://media-hls.doppiocdn.net/b-hls-24/197467228/197467228_240p_av1_init_aZTAuloW4kLpvnqf.mp4'
+    )
+  );
+  assert.ok(StreamSniffer.isMediaFragment('https://example.com/stream/init.mp4'));
+  assert.ok(StreamSniffer.isMediaFragment('https://example.com/stream/seg-1.mp4'));
+  assert.ok(StreamSniffer.isMediaFragment('https://example.com/stream/chunk_12.mp4'));
+  assert.ok(!StreamSniffer.isMediaFragment('https://example.com/full_movie.mp4'));
+  assert.ok(!StreamSniffer.isMediaFragment('https://example.com/master.m3u8'));
+});
+
+test('normalizeHlsUrl strips low-latency HLS client query parameters while preserving stream params', () => {
+  const llHlsUrl =
+    'https://media-hls.doppiocdn.net/b-hls-24/197467228/197467228_1080p60.m3u8?playlistType=lowLatency&preferredVideoCodec=av1&psch=v2&pkey=NTK9aqcLmNFMWrpQ&_HLS_msn=142&_HLS_part=2';
+  const normalized = StreamSniffer.normalizeHlsUrl(llHlsUrl);
+
+  assert.ok(!normalized.includes('_HLS_msn=142'));
+  assert.ok(!normalized.includes('_HLS_part=2'));
+  assert.ok(normalized.includes('playlistType=lowLatency'));
+  assert.ok(normalized.includes('pkey=NTK9aqcLmNFMWrpQ'));
+
+  const subsequentPoll =
+    'https://media-hls.doppiocdn.net/b-hls-24/197467228/197467228_1080p60.m3u8?playlistType=lowLatency&preferredVideoCodec=av1&psch=v2&pkey=NTK9aqcLmNFMWrpQ&_HLS_msn=143&_HLS_part=0';
+  assert.equal(normalized, StreamSniffer.normalizeHlsUrl(subsequentPoll));
+});

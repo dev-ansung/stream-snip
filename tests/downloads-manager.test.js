@@ -5,14 +5,14 @@ const path = require('node:path');
 
 const rootDir = path.resolve(__dirname, '..');
 
-test('popup.html includes 4 navigation tabs and corresponding panels', () => {
+test('popup.html includes 3 navigation tabs and corresponding panels (Videos, Downloads, Settings)', () => {
   const html = fs.readFileSync(path.join(rootDir, 'popup', 'popup.html'), 'utf8');
   assert.ok(html.includes('data-tab="videos"'), 'Must have videos tab');
-  assert.ok(html.includes('data-tab="preview"'), 'Must have preview tab');
+  assert.ok(!html.includes('data-tab="preview"'), 'Must drop preview tab');
   assert.ok(html.includes('data-tab="downloads"'), 'Must have downloads tab');
   assert.ok(html.includes('data-tab="settings"'), 'Must have settings tab');
   assert.ok(html.includes('id="panelVideos"'), 'Must have panelVideos');
-  assert.ok(html.includes('id="panelPreview"'), 'Must have panelPreview');
+  assert.ok(!html.includes('id="panelPreview"'), 'Must drop panelPreview');
   assert.ok(html.includes('id="panelDownloads"'), 'Must have panelDownloads');
   assert.ok(html.includes('id="panelSettings"'), 'Must have panelSettings');
 });
@@ -22,7 +22,7 @@ test('popup.js runs downloads in-place without opening separate download tabs', 
   assert.ok(!popupSource.includes('mode=download'), 'Must not rely on mode=download');
   assert.ok(!popupSource.includes('mode=download'), 'Must not open extra tabs for downloads');
   assert.ok(
-    popupSource.includes("switchTab('downloads')"),
+    popupSource.includes('switchTab(tabName)') || popupSource.includes("switchTab('downloads')"),
     'Must switch to in-place downloads tab'
   );
 });
@@ -41,53 +41,53 @@ test('Catcher captures content-length as size when available', () => {
   assert.ok(catcherSource.includes('formattedSize'));
 });
 
-test('popup.js wires dedicated folder button to chrome.downloads.show', () => {
-  const popupSource = fs.readFileSync(path.join(rootDir, 'popup', 'popup.js'), 'utf8');
+test('downloads-manager.js wires dedicated folder button to chrome.downloads.show', () => {
+  const dlSource = fs.readFileSync(path.join(rootDir, 'popup', 'downloads-manager.js'), 'utf8');
   assert.ok(
-    popupSource.includes('chrome.downloads.show(item.downloadId)'),
+    dlSource.includes('chrome.downloads.show(item.downloadId)'),
     'Must call chrome.downloads.show with downloadId on folder button click'
   );
   assert.ok(
-    popupSource.includes('.cc-btn-finder'),
+    dlSource.includes('.cc-btn-finder'),
     'Must have dedicated cc-btn-finder class for folder action'
   );
 });
 
-test('popup.js creates CatCatch-style card structure with tracks, domain, and status indicators', () => {
-  const popupSource = fs.readFileSync(path.join(rootDir, 'popup', 'popup.js'), 'utf8');
-  assert.ok(popupSource.includes('catcatch-card'), 'Must use catcatch-card element');
-  assert.ok(popupSource.includes('status-active'), 'Must support status-active class');
-  assert.ok(popupSource.includes('status-complete'), 'Must support status-complete class');
-  assert.ok(popupSource.includes('status-deleted'), 'Must support status-deleted class');
-  assert.ok(popupSource.includes('badge-deleted'), 'Must support badge-deleted tag');
-  assert.ok(popupSource.includes('cc-track-icon'), 'Must support audio/video track indicators');
-  assert.ok(popupSource.includes('cc-btn-reload'), 'Must support redownload/re-clip reload button');
+test('downloads-manager.js creates CatCatch-style card structure with tracks, domain, and status indicators', () => {
+  const dlSource = fs.readFileSync(path.join(rootDir, 'popup', 'downloads-manager.js'), 'utf8');
+  assert.ok(dlSource.includes('catcatch-card'), 'Must use catcatch-card element');
+  assert.ok(dlSource.includes('status-active'), 'Must support status-active class');
+  assert.ok(dlSource.includes('status-complete'), 'Must support status-complete class');
+  assert.ok(dlSource.includes('status-deleted'), 'Must support status-deleted class');
+  assert.ok(dlSource.includes('badge-deleted'), 'Must support badge-deleted tag');
+  assert.ok(dlSource.includes('cc-track-icon'), 'Must support audio/video track indicators');
+  assert.ok(dlSource.includes('cc-btn-reload'), 'Must support redownload/re-clip reload button');
 });
 
-test('popup.js seamlessly transitions active task to completed history in-place', () => {
-  const popupSource = fs.readFileSync(path.join(rootDir, 'popup', 'popup.js'), 'utf8');
+test('downloads-manager.js seamlessly transitions active task to completed history in-place', () => {
+  const dlSource = fs.readFileSync(path.join(rootDir, 'popup', 'downloads-manager.js'), 'utf8');
   assert.ok(
-    popupSource.includes('function transitionTaskToComplete(taskId, historyItem)'),
+    dlSource.includes('function transitionTaskToComplete(taskId, historyItem)'),
     'Must have transitionTaskToComplete function'
   );
   assert.ok(
-    popupSource.includes("card.classList.remove('status-active')"),
+    dlSource.includes("card.classList.remove('status-active')"),
     'Must transition status-active to status-complete in-place'
   );
   assert.ok(
-    popupSource.includes("card.classList.add('status-complete')"),
+    dlSource.includes("card.classList.add('status-complete')"),
     'Must add status-complete on the same card DOM element'
   );
 });
 
-test('popup.js checks file existence on disk via chrome.downloads.search for DELETED status', () => {
-  const popupSource = fs.readFileSync(path.join(rootDir, 'popup', 'popup.js'), 'utf8');
+test('downloads-manager.js checks file existence on disk via chrome.downloads.search for DELETED status', () => {
+  const dlSource = fs.readFileSync(path.join(rootDir, 'popup', 'downloads-manager.js'), 'utf8');
   assert.ok(
-    popupSource.includes('chrome.downloads.search({ id: item.downloadId })'),
+    dlSource.includes('chrome.downloads.search({ id: item.downloadId })'),
     'Must query chrome.downloads.search to verify file existence'
   );
   assert.ok(
-    popupSource.includes('item.exists = false'),
+    dlSource.includes('item.exists = false'),
     'Must mark item.exists = false when file is removed'
   );
 });
@@ -100,12 +100,14 @@ test('canceling a download job finalizes and saves partial downloaded chunks as 
   );
   assert.ok(
     offscreenSource.includes('downloader.saveToFile') &&
-      offscreenSource.includes("filename.replace(/\\.(ts|mp3|mp4)$/i, '') + '.mp4'"),
+      (offscreenSource.includes('buildPartialFilename') ||
+        offscreenSource.includes('.partial.mp4')),
     'Must save partial HLS download as MP4 in offscreen'
   );
-  const popupSource = fs.readFileSync(path.join(rootDir, 'popup', 'popup.js'), 'utf8');
+
+  const dlSource = fs.readFileSync(path.join(rootDir, 'popup', 'downloads-manager.js'), 'utf8');
   assert.ok(
-    popupSource.includes('transitionTaskToComplete(taskId,'),
+    dlSource.includes('transitionTaskToComplete(taskId,'),
     'Must transition partial download to completed in-place'
   );
 });

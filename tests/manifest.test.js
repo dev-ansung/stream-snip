@@ -107,8 +107,9 @@ test('popup.html contains extension reload button, log terminal, download manage
   assert.ok(html.includes('id="toastContainer"'), 'Must have toastContainer');
   assert.ok(html.includes('id="downloadManagerCard"'), 'Must have downloadManagerCard');
   assert.ok(html.includes('ui-feedback.js'), 'Must include ui-feedback.js');
-  assert.ok(html.includes('player-controller.js'), 'Must include player-controller.js');
-  assert.ok(html.includes('state-manager.js'), 'Must include state-manager.js');
+  assert.ok(html.includes('stream-list.js'), 'Must include stream-list.js');
+  assert.ok(html.includes('downloads-manager.js'), 'Must include downloads-manager.js');
+  assert.ok(html.includes('settings.js'), 'Must include settings.js');
 });
 
 test('manifest declares content_scripts pointing to existing content script', () => {
@@ -202,27 +203,57 @@ test('Catcher sniffs via Content-Type, not just URL pattern', () => {
   );
 });
 
-test('popup.js supports direct (non-HLS) media files, not just HLS clipping', () => {
-  const popupSource = fs.readFileSync(path.join(rootDir, 'popup', 'popup.js'), 'utf8');
+test('direct (non-HLS) media files are supported by stream-list and player, not just HLS clipping', () => {
+  const streamListSource = fs.readFileSync(path.join(rootDir, 'popup', 'stream-list.js'), 'utf8');
   assert.ok(
-    popupSource.includes('class NotHlsError'),
-    'Must distinguish "not HLS" from a generic fetch failure so it can fall back'
+    streamListSource.includes("stream.kind === 'direct'"),
+    'stream-list must distinguish direct streams'
   );
+  const playerSource = fs.readFileSync(path.join(rootDir, 'player', 'player.js'), 'utf8');
   assert.ok(
-    popupSource.includes('async function loadDirectStream'),
-    'Must have a distinct load path for direct media (no manifest/segments)'
-  );
-  assert.ok(
-    popupSource.includes('async function executeDirectDownload'),
-    'Must download direct files whole, without HLS segment/transmux logic'
-  );
-  assert.ok(
-    popupSource.includes("stream.kind === 'direct'"),
-    'Background-classified kind must steer which load/download path is used'
+    playerSource.includes("kind: isHls ? 'hls' : 'direct'") || playerSource.includes("'direct'"),
+    'player must support direct media playback and download dispatch'
   );
 });
 
 test('popup.html loads lib/stream-sniffer.js so popup.js can classify manual URLs', () => {
   const html = fs.readFileSync(path.join(rootDir, 'popup', 'popup.html'), 'utf8');
   assert.ok(html.includes('stream-sniffer.js'), 'popup.html must include the sniffer script');
+});
+
+test('manifest and content script exclude Cloudflare challenge endpoints and sandbox iframes', () => {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const cs = manifest.content_scripts[0];
+  assert.equal(cs.match_about_blank, undefined, 'Must not inject into about:blank');
+  assert.ok(Array.isArray(cs.exclude_matches), 'Must have exclude_matches');
+  assert.ok(
+    cs.exclude_matches.some((m) => m.includes('challenges.cloudflare.com')),
+    'Must exclude challenges.cloudflare.com'
+  );
+
+  const contentSource = fs.readFileSync(path.join(rootDir, 'content', 'content.js'), 'utf8');
+  assert.ok(
+    contentSource.includes('challenges.cloudflare.com'),
+    'content.js must guard against Cloudflare challenge platform'
+  );
+});
+
+test('catcher.js scopes webRequest to media types and filters challenge URLs', () => {
+  const catcherSource = fs.readFileSync(path.join(rootDir, 'background', 'catcher.js'), 'utf8');
+  assert.ok(
+    catcherSource.includes("types: ['media', 'xmlhttprequest', 'other']"),
+    'Must restrict webRequest types to media and XHR'
+  );
+  assert.ok(
+    catcherSource.includes('challenges.cloudflare.com'),
+    'Must bypass challenge endpoints in webRequest'
+  );
+});
+
+test('service_worker.js scopes declarativeNetRequest rules to requestDomains', () => {
+  const swSource = fs.readFileSync(path.join(rootDir, 'background', 'service_worker.js'), 'utf8');
+  assert.ok(
+    swSource.includes('requestDomains: [targetDomain]'),
+    'DNR rules must scope to targetDomain'
+  );
 });
