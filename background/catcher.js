@@ -238,6 +238,7 @@ const Catcher = (() => {
       pageTitle,
       pageUrl,
       cleanTitle,
+      sniffed: !manual,
       ...(size ? { size } : {}),
       ...(formattedSize ? { formattedSize } : {}),
       ...(manual ? { manual: true } : {}),

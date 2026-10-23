@@ -251,3 +251,97 @@ test('StreamFetcher.probeStream respects already-probed stream objects without f
     globalThis.fetch = originalFetch;
   }
 });
+
+test('StreamFetcher.probeStream marks sniffed or referer-bearing HLS streams returning 404 as protected', async () => {
+  StreamFetcher.clearCache();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    return { ok: false, status: 404 };
+  };
+
+  try {
+    const stream = {
+      url: 'https://wpvsahsvl0yo.spacetechnologydev.space/hls/master.txt',
+      kind: 'hls',
+      sniffed: true,
+      pageUrl: 'https://evsishere.xyz/video-page',
+      headers: { referer: 'https://evsishere.xyz/' }
+    };
+    const res = await StreamFetcher.probeStream(stream);
+
+    assert.equal(res.ok, true);
+    assert.equal(res.protected, true);
+    assert.equal(res.kind, 'hls');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('StreamFetcher.probeStream marks sniffed HLS streams returning HTML challenge as protected', async () => {
+  StreamFetcher.clearCache();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    return {
+      ok: true,
+      status: 200,
+      text: async () => '<html><title>Just a moment...</title>Cloudflare challenge</html>'
+    };
+  };
+
+  try {
+    const stream = {
+      url: 'https://wpvsahsvl0yo.spacetechnologydev.space/hls/index-f3-v1-a1.txt',
+      kind: 'hls',
+      sniffed: true,
+      pageUrl: 'https://evsishere.xyz/video-page'
+    };
+    const res = await StreamFetcher.probeStream(stream);
+
+    assert.equal(res.ok, true);
+    assert.equal(res.protected, true);
+    assert.equal(res.kind, 'hls');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('StreamFetcher.probeAndFilterStreams retains sniffed referer-protected HLS streams when unauthenticated probe returns 404', async () => {
+  StreamFetcher.clearCache();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (url.includes('valid.m3u8')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '#EXTM3U\n#EXTINF:60.0,\nseg.ts\n#EXT-X-ENDLIST'
+      };
+    }
+    return { ok: false, status: 404 };
+  };
+
+  try {
+    const streams = [
+      { url: 'https://example.com/broken-manual.m3u8', kind: 'hls', manual: true },
+      { url: 'https://example.com/valid.m3u8', kind: 'hls' },
+      {
+        url: 'https://wpvsahsvl0yo.spacetechnologydev.space/master.txt',
+        kind: 'hls',
+        sniffed: true,
+        pageUrl: 'https://evsishere.xyz/'
+      }
+    ];
+
+    const loadable = await StreamFetcher.probeAndFilterStreams(streams);
+
+    assert.equal(loadable.length, 2, 'Must retain valid stream and protected sniffed stream');
+    const valid = loadable.find((s) => s.url.includes('valid.m3u8'));
+    const sniffed = loadable.find((s) => s.url.includes('spacetechnologydev.space'));
+
+    assert.ok(valid);
+    assert.equal(valid.duration, 60.0);
+    assert.ok(sniffed);
+    assert.equal(sniffed.protected, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

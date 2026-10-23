@@ -115,6 +115,7 @@ export interface SnifferMediaItem {
   pageUrl?: string;
   cleanTitle?: string;
   manual?: boolean;
+  sniffed?: boolean;
 }
 
 export interface DownloadTask {

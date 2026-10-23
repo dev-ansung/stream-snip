@@ -432,7 +432,7 @@ const StreamList = (() => {
     try {
       if (typeof StreamFetcher !== 'undefined' && StreamFetcher.probeStream) {
         const probe = await StreamFetcher.probeStream(
-          { url: parsed.href, pageUrl: currentTabUrl },
+          { url: parsed.href, manual: true, pageUrl: currentTabUrl },
           { fallbackPageUrl: currentTabUrl }
         );
         if (!probe.ok) {
